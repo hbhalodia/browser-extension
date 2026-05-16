@@ -5,11 +5,11 @@ same extension files in a macOS host app — Safari's own packaging model.
 The runtime (background, content scripts, popup) is identical to the
 Chrome build.
 
-> The Xcode project files and folder names still use the original
-> `WP Detective` literal, pending an in-Xcode "Rename Project" pass and a
-> bundle-ID change coordinated with whoever owns the Apple developer account.
-> The user-facing display name (manifest, Settings → Extensions) is already
-> the new "WordPress Browser Extension."
+> The container app and extension targets keep `com.fabiankaegy.wp-detective`
+> / `com.fabiankaegy.wp-detective.Extension` as their bundle identifiers —
+> Fabian's namespace from the project's origin. Changing those requires
+> coordinating with whoever owns the Apple developer account / signing
+> identity and is tracked in [ROADMAP.md](ROADMAP.md) for pre-store-release prep.
 
 ## Build & install (developer)
 
@@ -20,12 +20,12 @@ git clone https://github.com/WordPress/browser-extension.git
 cd browser-extension
 npm install
 npm run build:safari
-open 'safari/WP Detective/WP Detective.xcodeproj'
+open 'safari/WordPress Browser Extension/WordPress Browser Extension.xcodeproj'
 ```
 
 In Xcode:
 
-1. Select the `WP Detective` scheme (the default).
+1. Select the `WordPress Browser Extension` scheme (the default).
 2. Press **Run** (⌘R). Xcode builds the container app, installs it, and
    launches it once.
 3. Quit the launched app.
@@ -38,10 +38,11 @@ time Safari quits — unsigned dev builds need to be re-enabled per session.
 ## Keeping the Safari build in sync
 
 The Xcode project references files it has its own copies of under
-`safari/WP Detective/WP Detective Extension/Resources/`. `npm run build:safari`
-rebuilds the popup bundle and rsyncs every shipping runtime file into that
-folder, so re-run it whenever `manifest.json`, `background.js`, `content.js`,
-`lib/*`, `popup/popup.html`, or any icon changes.
+`safari/WordPress Browser Extension/WordPress Browser Extension Extension/Resources/`.
+`npm run build:safari` rebuilds the popup bundle and rsyncs every shipping
+runtime file into that folder, so re-run it whenever `manifest.json`,
+`background.js`, `content.js`, `lib/*`, `popup/popup.html`, or any icon
+changes.
 
 ## Known issues
 
@@ -74,7 +75,7 @@ produced by a plain ⌘R in Xcode) is enough.
 Shipping to other Macs requires joining the Apple Developer Program (\$99/yr),
 setting `DEVELOPMENT_TEAM` in the project settings, and either:
 
-- notarizing a Release build of `WP Detective.app` for direct distribution, or
+- notarizing a Release build of `WordPress Browser Extension.app` for direct distribution, or
 - submitting to the Mac App Store (App Store Connect → new Mac app →
   attach the Safari extension target).
 
@@ -85,7 +86,7 @@ The project under `safari/` was produced by:
 ```
 xcrun safari-web-extension-converter ./path-to-runtime-files \
   --project-location ./safari \
-  --app-name "WP Detective" \
+  --app-name "WordPress Browser Extension" \
   --bundle-identifier com.fabiankaegy.wp-detective \
   --swift --macos-only --copy-resources --no-open
 ```
@@ -93,11 +94,12 @@ xcrun safari-web-extension-converter ./path-to-runtime-files \
 Re-run it only when changing major project structure (e.g. adding iOS,
 renaming the app). One fix-up is needed after regeneration: the converter
 auto-capitalizes the app's product name into the app bundle ID
-(`com.fabiankaegy.WP-Detective`), which then doesn't share a prefix with
-the extension's bundle ID and fails the embedded-binary check. Run:
+(`com.fabiankaegy.WordPress-Browser-Extension`), which then doesn't share
+a prefix with the extension's bundle ID and fails the embedded-binary
+check. Run:
 
 ```
 sed -i '' \
-  's|PRODUCT_BUNDLE_IDENTIFIER = "com.fabiankaegy.WP-Detective";|PRODUCT_BUNDLE_IDENTIFIER = "com.fabiankaegy.wp-detective";|g' \
-  'safari/WP Detective/WP Detective.xcodeproj/project.pbxproj'
+  's|PRODUCT_BUNDLE_IDENTIFIER = "com.fabiankaegy.WordPress-Browser-Extension";|PRODUCT_BUNDLE_IDENTIFIER = "com.fabiankaegy.wp-detective";|g' \
+  'safari/WordPress Browser Extension/WordPress Browser Extension.xcodeproj/project.pbxproj'
 ```

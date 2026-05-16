@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$ROOT/safari/WP Detective/WP Detective Extension/Resources"
+DEST="$ROOT/safari/WordPress Browser Extension/WordPress Browser Extension Extension/Resources"
 
 if [ ! -d "$DEST" ]; then
   echo "Safari Xcode project not found at: $DEST" >&2

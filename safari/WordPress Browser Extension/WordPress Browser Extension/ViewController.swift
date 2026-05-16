@@ -1,8 +1,8 @@
 //
 //  ViewController.swift
-//  WP Detective
+//  WordPress Browser Extension
 //
-//  Created by Fabian Kägy on 24.04.26.
+//  Created by Jake Goldman on 5/16/26.
 //
 
 import Cocoa
