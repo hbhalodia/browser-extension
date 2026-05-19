@@ -103,10 +103,21 @@ body {
 	background: var(--wpd-surface);
 }
 
+/* Top row holds the title and the trailing avatar/user menu. Aligned so the
+ * avatar's vertical center matches the first line of the hostname text. */
+.wpd-header__top {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
 .wpd-header__title {
 	display: flex;
 	align-items: center;
 	gap: 8px;
+	flex: 1;
+	min-width: 0;
 	font-family: var(--wpds-typography-font-family-body, -apple-system, system-ui, sans-serif);
 	font-size: 19px;
 	font-weight: 600;
@@ -137,6 +148,179 @@ body {
 	flex-wrap: wrap;
 	gap: 6px;
 	align-items: center;
+}
+
+/* User menu — circular bordered avatar trigger + Popover-positioned dropdown.
+ * Positioning, focus management, and dismissal come from @wordpress/ui's
+ * Popover primitives; we only style the trigger and the popup contents. */
+
+.wpd-user-menu__button {
+	display: grid;
+	place-items: center;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: 1px solid var(--wpd-border-strong);
+	border-radius: 50%;
+	background: var(--wpd-surface);
+	color: var(--wpd-ink-dim);
+	cursor: pointer;
+	overflow: hidden;
+	flex-shrink: 0;
+	transition: border-color 0.12s, box-shadow 0.12s;
+
+	&:hover {
+		border-color: var(--wpd-accent);
+	}
+
+	&:focus-visible {
+		outline: none;
+		border-color: var(--wpd-accent);
+		box-shadow: 0 0 0 2px var(--wpd-bg), 0 0 0 4px var(--wpd-accent);
+	}
+
+	&[aria-expanded="true"],
+	&[data-popup-open] {
+		border-color: var(--wpd-accent);
+	}
+}
+
+.wpd-user-menu__avatar {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	border-radius: 50%;
+}
+
+.wpd-user-menu__avatar--placeholder {
+	display: grid;
+	place-items: center;
+	background: var(--wpd-hover);
+	color: var(--wpd-ink-dim);
+
+	svg {
+		width: 16px;
+		height: 16px;
+		fill: currentColor;
+	}
+}
+
+/* Popover.Popup (variant="unstyled"): the `className` prop is forwarded to
+ * the floating positioner, not the popup itself, so we only set z-index
+ * there. The visible surface is the wrapper div we render as the popup's
+ * single child (`.wpd-user-menu__dropdown`). */
+.wpd-user-menu__positioner {
+	z-index: 100;
+}
+
+.wpd-user-menu__dropdown {
+	min-width: 200px;
+	padding: 6px;
+	background: var(--wpd-surface);
+	border: 1px solid var(--wpd-border);
+	border-radius: var(--wpd-radius);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.06);
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	color: var(--wpd-ink);
+	font-family: var(--wpds-typography-font-family-body, -apple-system, system-ui, sans-serif);
+	font-size: 13px;
+}
+
+.wpd-user-menu__header {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 6px 8px 8px;
+	margin-bottom: 2px;
+	border-bottom: 1px solid var(--wpd-border);
+}
+
+.wpd-user-menu__name {
+	display: block;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--wpd-ink);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wpd-user-menu__role {
+	display: block;
+	font-size: 11px;
+	font-weight: 400;
+	color: var(--wpd-ink-dim);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wpd-user-menu__item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 8px 10px;
+	border: 0;
+	border-radius: var(--wpd-radius-sm);
+	background: transparent;
+	color: var(--wpd-ink);
+	font: inherit;
+	font-size: 12.5px;
+	text-align: left;
+	cursor: pointer;
+	transition: background-color 0.1s, color 0.1s;
+
+	&:hover {
+		background: var(--wpd-hover);
+	}
+
+	&:focus-visible {
+		outline: 2px solid var(--wpd-accent);
+		outline-offset: -2px;
+	}
+}
+
+.wpd-user-menu__item-icon {
+	display: inline-grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	flex-shrink: 0;
+	color: var(--wpd-ink-dim);
+
+	svg {
+		width: 16px;
+		height: 16px;
+		fill: currentColor;
+	}
+}
+
+.wpd-user-menu__item-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wpd-user-menu__item--destructive {
+	color: var(--wpds-color-fg-content-error, #c53030);
+
+	.wpd-user-menu__item-icon {
+		color: inherit;
+	}
+
+	&:hover {
+		background: var(--wpds-color-bg-surface-error-weak, rgba(197, 48, 48, 0.08));
+	}
+
+	&.is-active {
+		background: var(--wpds-color-bg-interactive-error, #c53030);
+		color: #fff;
+	}
 }
 
 /* Sections ============================================================== */

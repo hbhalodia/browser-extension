@@ -254,6 +254,18 @@
       return true;
     }
 
+    if (msg.type === 'GET_CURRENT_USER') {
+      // Fetches /wp/v2/users/me?context=edit. The nonce arrives from the
+      // popup via the same MAIN-world extraction that GET_SITE_INFO uses.
+      const ctx = detection.context;
+      const nonce = msg.nonce || null;
+      globalThis.WPRest
+        .fetchCurrentUser({ restApiRoot: ctx.restApiRoot, origin: location.origin, nonce })
+        .then((user) => sendResponse({ user }))
+        .catch(() => sendResponse({ user: null }));
+      return true;
+    }
+
     if (msg.type === 'TOGGLE_QUERY_MONITOR') {
       // QM toggles its main panel via a click on the admin-bar link, OR
       // directly via the `.qm-show` class on #query-monitor-main. The

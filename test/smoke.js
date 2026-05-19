@@ -554,6 +554,155 @@ async function main() {
       'data: scheme accepted');
   }
 
+  // --- 21. fetchCurrentUser hits /users/me with context=edit + nonce ----
+  {
+    console.log('\n[21] fetchCurrentUser — URL, headers, response shape');
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+
+    let capturedUrl = null;
+    let capturedHeaders = null;
+    const mockFetch = async (url, options) => {
+      capturedUrl = url;
+      capturedHeaders = options && options.headers;
+      return {
+        ok: true,
+        async json() { return { id: 1, name: 'Jane', roles: ['administrator'] }; },
+      };
+    };
+
+    const user = await ctx.WPRest.fetchCurrentUser({
+      restApiRoot: 'https://example.com/wp-json/',
+      origin: 'https://example.com',
+      nonce: 'deadbeef',
+      fetchImpl: mockFetch,
+    });
+    assert(capturedUrl === 'https://example.com/wp-json/wp/v2/users/me?context=edit',
+      'hits /wp/v2/users/me with context=edit');
+    assert(capturedHeaders && capturedHeaders['X-WP-Nonce'] === 'deadbeef',
+      'X-WP-Nonce header forwarded');
+    assert(user && Array.isArray(user.roles) && user.roles[0] === 'administrator',
+      'response JSON returned verbatim');
+
+    // Non-2xx → null.
+    const nullUser = await ctx.WPRest.fetchCurrentUser({
+      restApiRoot: 'https://example.com/wp-json/',
+      origin: 'https://example.com',
+      fetchImpl: async () => ({ ok: false }),
+    });
+    assert(nullUser === null, '401 response yields null');
+  }
+
+  // --- 20. User info from admin bar -------------------------------------
+  // Avatar URL, display name, and edit-profile href come from the
+  // My Account / User Info menu items. Drives the popup's user menu.
+  {
+    console.log('\n[20] User info extracted from admin bar');
+    const dom = new JSDOM(`
+      <html><body class="logged-in admin-bar">
+        <div id="wpadminbar">
+          <ul id="wp-admin-bar-top-secondary">
+            <li id="wp-admin-bar-my-account">
+              <a class="ab-item" href="https://example.com/wp-admin/profile.php">
+                Howdy, <span class="display-name">Jane</span>
+                <img alt="" src="https://secure.gravatar.com/avatar/abc?s=26" class="avatar avatar-26 photo">
+              </a>
+              <div class="ab-sub-wrapper">
+                <ul id="wp-admin-bar-user-actions" class="ab-submenu">
+                  <li id="wp-admin-bar-user-info">
+                    <a class="ab-item" href="https://example.com/wp-admin/profile.php">
+                      <img alt="" src="https://secure.gravatar.com/avatar/abc?s=64" class="avatar avatar-64 photo">
+                      <span class="display-name">Jane Doe</span>
+                    </a>
+                  </li>
+                  <li id="wp-admin-bar-edit-profile">
+                    <a class="ab-item" href="https://example.com/wp-admin/profile.php">Edit Profile</a>
+                  </li>
+                  <li id="wp-admin-bar-logout">
+                    <a class="ab-item" href="https://example.com/wp-login.php?action=logout&_wpnonce=abc">Log Out</a>
+                  </li>
+                </ul>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </body></html>
+    `);
+    const ctx = loadModules(dom);
+    const det = ctx.WPDetect.detectWordPress(ctx.document, { origin: 'https://example.com' });
+    assert(det.context.userAvatarUrl === 'https://secure.gravatar.com/avatar/abc?s=64',
+      '64×64 avatar (from user-info submenu) wins over 26×26 top-level');
+    assert(det.context.userDisplayName === 'Jane Doe',
+      'displayName picked up from user-info submenu');
+    assert(det.context.userEditProfileHref === 'https://example.com/wp-admin/profile.php',
+      'edit-profile href captured');
+
+    // Top-level fallback when the submenu is missing.
+    const dom2 = new JSDOM(`
+      <html><body class="logged-in admin-bar">
+        <div id="wpadminbar">
+          <li id="wp-admin-bar-my-account">
+            <a class="ab-item" href="https://example.com/wp-admin/profile.php">
+              <span class="display-name">Solo</span>
+              <img alt="" src="https://example.com/avatar.png" class="avatar">
+            </a>
+          </li>
+        </div>
+      </body></html>
+    `);
+    const ctx2 = loadModules(dom2);
+    const det2 = ctx2.WPDetect.detectWordPress(ctx2.document, { origin: 'https://example.com' });
+    assert(det2.context.userAvatarUrl === 'https://example.com/avatar.png',
+      'falls back to top-level avatar when user-info submenu absent');
+    assert(det2.context.userDisplayName === 'Solo', 'display-name from top-level link');
+    assert(det2.context.userEditProfileHref === null, 'no edit-profile href when submenu missing');
+
+    // javascript: URLs in the avatar src must be rejected.
+    const dom3 = new JSDOM(`
+      <html><body class="logged-in admin-bar">
+        <div id="wpadminbar">
+          <li id="wp-admin-bar-user-info">
+            <img alt="" src="javascript:alert(1)" class="avatar">
+          </li>
+        </div>
+      </body></html>
+    `);
+    const ctx3 = loadModules(dom3);
+    const det3 = ctx3.WPDetect.detectWordPress(ctx3.document, { origin: 'https://example.com' });
+    assert(det3.context.userAvatarUrl === null, 'javascript: avatar URL rejected');
+
+    // Super admin signal — multisite renders #wp-admin-bar-network-admin
+    // only when the current user is a super admin. Single-site installs
+    // (or non-super-admins on multisite) never get the wrapper node.
+    const domSuper = new JSDOM(`
+      <html><body class="logged-in admin-bar">
+        <div id="wpadminbar">
+          <li id="wp-admin-bar-my-sites">
+            <li id="wp-admin-bar-network-admin">
+              <li id="wp-admin-bar-network-admin-d"><a href="/wp-admin/network/">Network Dashboard</a></li>
+            </li>
+          </li>
+        </div>
+      </body></html>
+    `);
+    const ctxSuper = loadModules(domSuper);
+    const detSuper = ctxSuper.WPDetect.detectWordPress(ctxSuper.document, { origin: 'https://example.com' });
+    assert(detSuper.context.isSuperAdmin === true,
+      'super admin detected from #wp-admin-bar-network-admin');
+
+    const domPlain = new JSDOM(`
+      <html><body class="logged-in admin-bar">
+        <div id="wpadminbar">
+          <li id="wp-admin-bar-my-account"><a href="/wp-admin/profile.php">Hi</a></li>
+        </div>
+      </body></html>
+    `);
+    const ctxPlain = loadModules(domPlain);
+    const detPlain = ctxPlain.WPDetect.detectWordPress(ctxPlain.document, { origin: 'https://example.com' });
+    assert(detPlain.context.isSuperAdmin === false,
+      'plain logged-in user (no network admin menu) is not flagged as super admin');
+  }
+
   // --- 12. Not a WordPress site -----------------------------------------
   {
     console.log('\n[12] Non-WordPress page');
