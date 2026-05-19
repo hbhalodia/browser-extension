@@ -35,9 +35,8 @@ cp "$ROOT/lib/block-inspector.js"  "$DEST/lib/"
 
 cp "$ROOT/popup/popup.html" "$DEST/popup/"
 
-cp "$ROOT/dist/popup.css"              "$DEST/dist/"
-cp "$ROOT/dist/popup.js"               "$DEST/dist/"
-cp "$ROOT/dist/popup.js.LICENSE.txt"   "$DEST/dist/"
+cp "$ROOT/dist/popup.css" "$DEST/dist/"
+cp "$ROOT/dist/popup.js"  "$DEST/dist/"
 
 cp "$ROOT/icons"/*.png "$DEST/icons/"
 
