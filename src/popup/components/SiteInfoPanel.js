@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, info as infoIcon } from '@wordpress/icons';
 import { requestSiteInfo } from '../lib/actions';
+import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
 
 /**
  * Surfaces whatever metadata we can gather about the site: active theme,
@@ -38,13 +39,15 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 	const plugins = data?.plugins || null;
 	const siteInfo = data?.siteInfo || null;
 
-	// Merge DOM-detected plugin slugs with REST data when available.
-	// REST is the richer source but needs admin capability, so the DOM list
-	// is the fallback that still works for logged-out visitors.
-	const pluginRows = useMemo(
-		() => mergePlugins(pluginSlugs, plugins, siteInfo?.namespaces),
-		[pluginSlugs, plugins, siteInfo],
-	);
+	// Defer plugin merge until REST finishes. Showing DOM-detected slugs
+	// during the fetch caused the count/labels to jump (e.g. 4 → 18) and
+	// flicker until the authoritative list arrived. See #5.
+	const pluginRows = useMemo(() => {
+		if (loading) {
+			return [];
+		}
+		return mergePlugins(pluginSlugs, plugins, siteInfo?.namespaces);
+	}, [loading, pluginSlugs, plugins, siteInfo]);
 
 	const themeInfo = useMemo(
 		() => mergeTheme(themeSlug, activeTheme),
@@ -52,8 +55,11 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 	);
 
 	const hasAnything = !!themeInfo || pluginRows.length > 0;
+	const showPluginsSection = loading || pluginRows.length > 0;
 
-	if (!hasAnything && !ctx.restApiRoot) return null;
+	if (!hasAnything && !ctx.restApiRoot && !loading) {
+		return null;
+	}
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={handleOpenChange} className="wpd-siteinfo">
@@ -77,20 +83,14 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 						</InfoGroup>
 					)}
 
-					{(pluginRows.length > 0 || loading) && (
-						<InfoGroup
-							label={
-								plugins
-									? `Plugins (${pluginRows.length})`
-									: pluginRows.length
-										? `Detected plugins (${pluginRows.length})`
-										: 'Plugins'
-							}
-						>
-							{loading && pluginRows.length === 0 && (
-								<p className="wpd-siteinfo__hint">Loading…</p>
+					{showPluginsSection && (
+						<InfoGroup label={pluginsPluginLabel(loading, plugins, pluginRows.length)}>
+							{loading && (
+								<p className="wpd-siteinfo__hint" aria-live="polite">
+									Loading…
+								</p>
 							)}
-							{pluginRows.length > 0 && (
+							{!loading && pluginRows.length > 0 && (
 								<div className="wpd-siteinfo__pills">
 									{pluginRows.map((p) => (
 										<PluginPill key={p.slug} plugin={p} onOpen={onOpen} />
@@ -112,6 +112,19 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			</Collapsible.Panel>
 		</Collapsible.Root>
 	);
+}
+
+function pluginsPluginLabel(loading, plugins, count) {
+	if (loading) {
+		return 'Plugins';
+	}
+	if (plugins) {
+		return `Plugins (${count})`;
+	}
+	if (count > 0) {
+		return `Detected plugins (${count})`;
+	}
+	return 'Plugins';
 }
 
 function InfoGroup({ label, children }) {
@@ -183,70 +196,4 @@ function PluginPill({ plugin, onOpen }) {
 			{label}
 		</button>
 	);
-}
-
-/**
- * Combines the asset-scan theme slug with REST data when the user has
- * edit_theme_options. REST wins on every field it provides; the slug is
- * always shown so we can still say something when REST is inaccessible.
- */
-function mergeTheme(slug, rest) {
-	if (!slug && !rest) return null;
-	if (!rest) return { slug, name: slug, version: null, author: null };
-	return {
-		slug: rest.stylesheet || slug,
-		name: rest.name?.rendered || rest.name || slug,
-		version: rest.version || null,
-		author: rest.author?.rendered || rest.author || null,
-	};
-}
-
-/**
- * Unions the DOM-detected plugin slugs with REST plugin data and namespace
- * hints. Each output row has { slug, name, version, active }. REST rows
- * carry the slug as the first segment of their `plugin` field
- * ("jetpack/jetpack" → "jetpack"). Namespaces (wc/v3, yoast/v1, …) only
- * give us a slug-like hint; treat them the same as DOM slugs.
- */
-function mergePlugins(domSlugs, restPlugins, namespaces) {
-	const bySlug = new Map();
-
-	for (const slug of domSlugs) {
-		bySlug.set(slug, { slug, name: null, version: null, active: null, pluginUri: null });
-	}
-
-	// Namespaces give one extra signal — drop core wp/v2, oembed/1.0 noise.
-	const NS_SKIP = new Set(['wp/v2', 'wp/v2/fields', 'wp-site-health/v1', 'oembed/1.0', 'wp-block-editor/v1', 'akismet/v1']);
-	for (const ns of namespaces || []) {
-		if (NS_SKIP.has(ns)) continue;
-		const slugFromNs = ns.split('/')[0];
-		if (!slugFromNs || slugFromNs === 'wp') continue;
-		if (!bySlug.has(slugFromNs)) {
-			bySlug.set(slugFromNs, { slug: slugFromNs, name: null, version: null, active: null, pluginUri: null });
-		}
-	}
-
-	for (const p of restPlugins || []) {
-		const slug = (p.plugin || '').split('/')[0];
-		if (!slug) continue;
-		const row = {
-			slug,
-			name: p.name || null,
-			version: p.version || null,
-			active: p.status === 'active',
-			pluginUri: p.plugin_uri || null,
-		};
-		bySlug.set(slug, row);
-	}
-
-	// Hide inactive plugins. DOM-detected slugs (active: null) and REST-active
-	// rows pass through; REST-confirmed inactive rows are dropped.
-	return Array.from(bySlug.values())
-		.filter((p) => p.active !== false)
-		.sort((a, b) => a.slug.localeCompare(b.slug));
-}
-
-function stripTags(s) {
-	if (typeof s !== 'string') return '';
-	return s.replace(/<[^>]*>/g, '').trim();
 }

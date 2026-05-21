@@ -4,7 +4,7 @@
   "private": true,
   "description": "Smoke tests for lib/detect.js and lib/rest.js",
   "scripts": {
-    "test": "node smoke.js"
+    "test": "node smoke.js && node site-info.mjs"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
