@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, info as infoIcon } from '@wordpress/icons';
 import { requestSiteInfo } from '../lib/actions';
@@ -8,56 +8,67 @@ import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
  * Surfaces whatever metadata we can gather about the site: active theme,
  * installed plugins, site name/description, REST namespaces.
  *
- * Rendered progressively — DOM-detected slugs appear immediately when the
- * panel opens; the REST round-trip (fired lazily on first open) then fills
- * in human-readable names, versions, and any extras only the REST API
- * exposes. The REST call can return partial data: site info is public,
- * theme/plugin detail require admin capabilities.
+ * Site info is fetched lazily on first expand. DOM-detected slugs and REST
+ * data are merged only after that fetch settles so counts and pills do not
+ * jump while loading (see #5).
  */
 export function SiteInfoPanel({ ctx, origin, onOpen }) {
 	const [open, setOpen] = useState(false);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [attempted, setAttempted] = useState(false);
-
-	const themeSlug = ctx.themeSlug || null;
-	const pluginSlugs = useMemo(() => ctx.pluginSlugs || [], [ctx.pluginSlugs]);
+	const fetchStartedRef = useRef(false);
+	const snapshotRef = useRef({ pluginSlugs: [], themeSlug: null });
 
 	const handleOpenChange = (next) => {
 		setOpen(next);
-		if (next && !attempted && !loading) {
-			setLoading(true);
-			requestSiteInfo().then((res) => {
+		if (!next || fetchStartedRef.current) {
+			return;
+		}
+		// Guard synchronously — setLoading(true) is async, and Collapsible can
+		// emit onOpenChange(true) more than once per expand, which previously
+		// kicked off overlapping GET_SITE_INFO requests that completed out of
+		// order and made the plugin list/count flicker.
+		fetchStartedRef.current = true;
+		snapshotRef.current = {
+			pluginSlugs: Array.isArray(ctx.pluginSlugs) ? [...ctx.pluginSlugs] : [],
+			themeSlug: ctx.themeSlug || null,
+		};
+		setLoading(true);
+		requestSiteInfo()
+			.then((res) => {
 				setData(res);
+			})
+			.finally(() => {
 				setLoading(false);
 				setAttempted(true);
 			});
-		}
 	};
 
 	const activeTheme = data?.activeTheme || null;
 	const plugins = data?.plugins || null;
 	const siteInfo = data?.siteInfo || null;
+	const { pluginSlugs: snapshotSlugs, themeSlug: snapshotTheme } = snapshotRef.current;
 
-	// Defer plugin merge until REST finishes. Showing DOM-detected slugs
-	// during the fetch caused the count/labels to jump (e.g. 4 → 18) and
-	// flicker until the authoritative list arrived. See #5.
 	const pluginRows = useMemo(() => {
 		if (loading) {
 			return [];
 		}
-		return mergePlugins(pluginSlugs, plugins, siteInfo?.namespaces);
-	}, [loading, pluginSlugs, plugins, siteInfo]);
+		return mergePlugins(snapshotSlugs, plugins, siteInfo?.namespaces);
+	}, [loading, snapshotSlugs, plugins, siteInfo]);
 
-	const themeInfo = useMemo(
-		() => mergeTheme(themeSlug, activeTheme),
-		[themeSlug, activeTheme],
-	);
+	const themeInfo = useMemo(() => {
+		if (loading) {
+			return null;
+		}
+		return mergeTheme(snapshotTheme, activeTheme);
+	}, [loading, snapshotTheme, activeTheme]);
 
 	const hasAnything = !!themeInfo || pluginRows.length > 0;
-	const showPluginsSection = loading || pluginRows.length > 0;
+	const showPluginsSection =
+		loading || pluginRows.length > 0 || (attempted && snapshotSlugs.length > 0);
 
-	if (!hasAnything && !ctx.restApiRoot && !loading) {
+	if (!hasAnything && !ctx.restApiRoot && !loading && !attempted) {
 		return null;
 	}
 
@@ -77,27 +88,28 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="wpd-siteinfo__panel">
 				<div className="wpd-siteinfo__body">
-					{themeInfo && (
+					{loading && (
+						<p className="wpd-siteinfo__hint wpd-siteinfo__hint--loading" aria-live="polite">
+							Loading site information…
+						</p>
+					)}
+
+					{!loading && themeInfo && (
 						<InfoGroup label="Active theme">
 							<ThemeRow theme={themeInfo} origin={origin} onOpen={onOpen} />
 						</InfoGroup>
 					)}
 
-					{showPluginsSection && (
-						<InfoGroup label={pluginsPluginLabel(loading, plugins, pluginRows.length)}>
-							{loading && (
-								<p className="wpd-siteinfo__hint" aria-live="polite">
-									Loading…
-								</p>
-							)}
-							{!loading && pluginRows.length > 0 && (
+					{!loading && showPluginsSection && (
+						<InfoGroup label={pluginsPluginLabel(plugins, pluginRows.length)}>
+							{pluginRows.length > 0 && (
 								<div className="wpd-siteinfo__pills">
 									{pluginRows.map((p) => (
 										<PluginPill key={p.slug} plugin={p} onOpen={onOpen} />
 									))}
 								</div>
 							)}
-							{!loading && attempted && !plugins && pluginRows.length > 0 && (
+							{attempted && !plugins && pluginRows.length > 0 && (
 								<p className="wpd-siteinfo__hint">
 									Log in for a comprehensive list of plugins with additional information.
 								</p>
@@ -114,10 +126,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 	);
 }
 
-function pluginsPluginLabel(loading, plugins, count) {
-	if (loading) {
-		return 'Plugins';
-	}
+function pluginsPluginLabel(plugins, count) {
 	if (plugins) {
 		return `Plugins (${count})`;
 	}

@@ -652,6 +652,12 @@ body {
 	font-style: italic;
 }
 
+.wpd-siteinfo__hint--loading {
+	min-height: 48px;
+	display: flex;
+	align-items: center;
+}
+
 .wpd-siteinfo__pills {
 	display: flex;
 	flex-wrap: wrap;
