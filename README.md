@@ -46,14 +46,15 @@ See [`SAFARI.md`](SAFARI.md) — requires Xcode and a one-time Xcode Run (⌘R).
 
 ## Features
 
-- **Detect WordPress** — Identifies WP sites automatically via REST API links, generator tags, asset paths, and body classes. The toolbar icon has three states: gray with a slash for non-WP, gray for WP, blue for WP and logged in.
+- **Detect WordPress** — Identifies WP sites automatically via REST API links, generator tags, asset paths, and body classes. The toolbar icon has three states: a WordPress-blue circle when logged in to a WP site, dark gray when logged out on a WP site, and dark gray with a diagonal slash for non-WP pages. The full-bleed background keeps the icon legible against any browser chrome.
 - **Site icon in the popup header** — When a site has a WordPress Site Icon configured (Customize → Site Identity), it appears next to the hostname in the popup header for fast visual identification.
 - **Edit this page** — Jump straight to the editor for posts, pages, categories, tags, authors, and custom post types — including hyphenated CPT slugs like `case-study`. Keyboard shortcut: `Alt+Shift+E` (`Option+Shift+E` on Mac), customizable at `chrome://extensions/shortcuts`.
 - **View / Preview from the editor** — On wp-admin edit screens, see the published page or preview a draft (with nonce) in one click. Works for all post types.
 - **+ New content menu** — Mirrors the admin bar's "+ New" dropdown with the post types your role can create.
 - **Identify the host** — Detects WP Engine, WordPress VIP, Pantheon, Kinsta, Flywheel, Cloudways, WordPress.com, Pressable, and local dev environments. Cached per origin for 90 days.
 - **Toggle the admin bar** — Hide or show the front-end admin bar per site, without flash. Honors your profile setting and surfaces a clear hint when WP itself has the bar disabled.
-- **One-click sign out** — Inline confirm, then logs out via the admin bar's nonce so WordPress's "are you sure?" page is skipped.
+- **Account menu** — A circular avatar button in the popup header opens an account dropdown with the logged-in user's display name, role (Super Admin / Administrator / Editor / etc.), and one-click links to the WordPress profile and Gravatar (when the avatar comes from gravatar.com). Sourced from the admin bar's My Account menu.
+- **One-click sign out** — Inline confirm in the account menu, then logs out via the admin bar's nonce so WordPress's "are you sure?" page is skipped.
 - **Developer tools** — Mobile preview window (iPhone-sized), bypass page cache, clear cookies + site data (preserving your WP login), Highlight Blocks (outline `wp-block-*` elements with a breadcrumb tooltip), and a Query Monitor toggle when QM is installed.
 
 ## Options page
@@ -68,7 +69,7 @@ Current options:
 
 ## Development
 
-The popup UI is React + [`@wordpress/ui`](https://www.npmjs.com/package/@wordpress/ui), bundled with [10up-toolkit](https://github.com/10up/10up-toolkit). The background service worker, content scripts, and `lib/*.js` are plain JavaScript — no build step there.
+The popup UI is React + [`@wordpress/ui`](https://www.npmjs.com/package/@wordpress/ui), bundled with [`@wordpress/scripts`](https://www.npmjs.com/package/@wordpress/scripts). The background service worker, content scripts, `lib/*.js`, and the options page (`options/*`) are plain JavaScript — no build step there.
 
 ```
 npm install

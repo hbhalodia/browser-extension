@@ -28,12 +28,12 @@ For UX questions, "should we…?" discussions, demo recordings, or feature ideas
 git clone https://github.com/WordPress/browser-extension.git
 cd browser-extension
 npm install
-npm run build     # production bundle → dist/
+npm run build     # production bundle → dist/popup.{js,css}
 # OR
 npm start         # watch mode for development
 ```
 
-Load the repo into Chrome via `chrome://extensions` → Developer mode → **Load unpacked**, pointing at the repo root (the manifest sits at the top level; the popup bundle lives under `dist/popup/`).
+Load the repo into Chrome via `chrome://extensions` → Developer mode → **Load unpacked**, pointing at the repo root (the manifest sits at the top level; the popup bundle is at `dist/popup.{js,css}`).
 
 For Safari development, see [`SAFARI.md`](SAFARI.md).
 
@@ -47,8 +47,8 @@ Smoke tests cover the vanilla `lib/*.js` modules. Test before opening a PR.
 
 ### Architecture notes
 
-- The popup UI is React + [`@wordpress/ui`](https://www.npmjs.com/package/@wordpress/ui), bundled with [10up-toolkit](https://github.com/10up/10up-toolkit) → `dist/popup/`.
-- The background service worker (`background.js`), content scripts (`content.js`), and `lib/*.js` are plain JavaScript — no build step there. Don't introduce a bundler dependency for those without discussion.
+- The popup UI is React + [`@wordpress/ui`](https://www.npmjs.com/package/@wordpress/ui), bundled with [`@wordpress/scripts`](https://www.npmjs.com/package/@wordpress/scripts) → `dist/popup.{js,css}`.
+- The background service worker (`background.js`), content scripts (`content.js`), `lib/*.js`, and the extension options page (`options/*`) are plain JavaScript — no build step there. Don't introduce a bundler dependency for those without discussion.
 - The Safari build re-uses the Chrome runtime via `npm run build:safari`, which rsyncs all shipping files into the Xcode project resources.
 
 ### Conventions

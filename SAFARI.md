@@ -41,8 +41,15 @@ The Xcode project references files it has its own copies of under
 `safari/WordPress Browser Extension/WordPress Browser Extension Extension/Resources/`.
 `npm run build:safari` rebuilds the popup bundle and rsyncs every shipping
 runtime file into that folder, so re-run it whenever `manifest.json`,
-`background.js`, `content.js`, `lib/*`, `popup/popup.html`, or any icon
-changes.
+`background.js`, `content.js`, `lib/*`, `popup/popup.html`, `options/*`,
+or any icon changes.
+
+If new top-level files or folders are added to the runtime (e.g. a new
+`options/` folder shipped in v0.9), they also have to be registered in
+the Xcode project file (`WordPress Browser Extension.xcodeproj/project.pbxproj`)
+as a folder reference. Open the project in Xcode, drag the folder into
+the Resources group, and choose "Create folder references" so future
+files inside it sync automatically.
 
 ## Known issues
 

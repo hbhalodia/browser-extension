@@ -6,8 +6,8 @@ A milestone-level view of where this project is heading. Day-to-day work is trac
 
 | Phase | What | Status |
 |---|---|---|
-| **v0.8.x** | Public scaffold under the WordPress org. Feature work and polish on the v0.8 surface; React popup architecture, Site Information panel, Block Inspector, host detection, developer tools. | active (now) |
-| **v0.9.x** | **Features:** surface the logged-in user (display name + Gravatar) in the popup header. (Site icon next to the hostname shipped in v0.8.2.) **Store-prep:** permissions and API-surface review (trim to least-privilege). Xcode bundle identifier change from `com.fabiankaegy.wp-detective` to a WordPress-namespaced ID — coordinated with the Apple Developer account holder. (The Xcode project / display-name rename to "WordPress Browser Extension" shipped in v0.8.3.) | next |
+| **v0.8.x** | Public scaffold under the WordPress org. React popup architecture, Site Information panel, Block Inspector, host detection, developer tools. | shipped |
+| **v0.9.x** | **Features:** account menu in the popup header (display name, role, profile / Gravatar); extension options page with browser-wide preferences (admin bar default, Site Information opt-in, clear-data); toolbar icon redesigned for contrast on any browser chrome; admin bar attribution comment when the extension is hiding it. **Build:** popup bundle migrated from `10up-toolkit` to `@wordpress/scripts`. **Security:** REST root and profile URL validated against same-origin so a hostile page can't redirect the extension's authenticated calls. **Store-prep pending:** Xcode bundle identifier change from `com.fabiankaegy.wp-detective` to a WordPress-namespaced ID — coordinated with the Apple Developer account holder. Final permissions and API-surface review. (The Xcode project / display-name rename to "WordPress Browser Extension" shipped in v0.8.3.) | active (now) |
 | **v1.0** | Initial official directory releases under the WordPress publisher account: **Chrome Web Store** and **Safari / Mac App Store** (the two surfaces this codebase already ships). API and permissions surface frozen; deprecation policy locked. | gated by store-listing prep + WordPress Foundation alignment on publisher account |
 | **post-1.0** | Expansion to additional browser directories — **Firefox Add-ons (AMO)** (requires a manifest v2/v3 compatibility audit; Firefox's WebExtension surface diverges from Chromium in a few places) and **Edge Add-ons** (typically rides the Chrome Web Store submission, but the WordPress publisher-account question may differ). Ongoing host-detection additions as managed-WordPress platforms ship new signatures. | gated by 1.0 launch signal |
 
@@ -23,7 +23,7 @@ A working list of items the maintainers think need to land before the v1.0 store
 
 ## Intentionally out of scope (for now)
 
-- **Per-site overrides via a settings UI.** Today's model is per-feature toggles plus a 90-day per-origin host detection cache. A dedicated settings page is a possible v2 feature gated by demonstrated demand.
+- **A per-site settings page.** Today's model is browser-wide defaults on the extension options page plus per-feature toggles in the popup. A dedicated per-site settings page is a possible v2 feature gated by demonstrated demand.
 - **Bundled analytics or telemetry.** The extension is a developer/maintainer tool, not a tracking surface. No remote analytics are shipped.
 - **Mobile browsers** (Chrome Android, Safari iOS). Mobile WebExtension support is patchy and the use cases are weaker. Possible post-1.0.
 - **Multi-account / profile switching.** Out of scope at v1.0; the extension uses whatever WordPress login the current browser session has.
