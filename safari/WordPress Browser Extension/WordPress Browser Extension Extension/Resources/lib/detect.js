@@ -77,6 +77,19 @@
         // icon is configured — generic theme favicons are intentionally
         // not picked up so the popup header stays meaningful.
         siteIconUrl: null,
+        // Current user — populated from the admin bar's My Account menu
+        // when present. Avatar comes from #wp-admin-bar-user-info (the
+        // 64×64 variant), display name from .display-name, and the
+        // edit-profile link from #wp-admin-bar-edit-profile.
+        userAvatarUrl: null,
+        userDisplayName: null,
+        userEditProfileHref: null,
+        // Multisite super admin — distinct from any per-site role. Super
+        // admins frequently carry only `subscriber` in `wp_capabilities`
+        // for a given site, so a REST role lookup mislabels them. The
+        // admin bar exposes the network-admin menu only to super admins,
+        // which gives us a synchronous, accurate signal.
+        isSuperAdmin: false,
       },
     };
 
@@ -156,6 +169,40 @@
       } else if (previewLink) {
         result.context.adminBarViewHref = previewLink.href;
         result.context.postStatus = 'draft';
+      }
+
+      // Current-user info from the My Account menu. The 64×64 avatar in
+      // #wp-admin-bar-user-info is the higher-resolution variant; if it's
+      // missing (themes/plugins occasionally remove the submenu) we fall
+      // back to the inline 26×26 image on the top-level link.
+      const userInfoImg = adminBar.querySelector('#wp-admin-bar-user-info img.avatar');
+      const fallbackImg = adminBar.querySelector('#wp-admin-bar-my-account img.avatar');
+      const avatarImg = userInfoImg || fallbackImg;
+      if (avatarImg && avatarImg.getAttribute('src')) {
+        try {
+          const p = new URL(avatarImg.src).protocol;
+          if (p === 'http:' || p === 'https:' || p === 'data:') {
+            result.context.userAvatarUrl = avatarImg.src;
+          }
+        } catch (_) { /* malformed avatar URL, skip */ }
+      }
+
+      const displayNameEl = adminBar.querySelector('#wp-admin-bar-user-info .display-name')
+        || adminBar.querySelector('#wp-admin-bar-my-account .display-name');
+      if (displayNameEl) {
+        const name = (displayNameEl.textContent || '').trim();
+        if (name) result.context.userDisplayName = name;
+      }
+
+      const editProfileLink = adminBar.querySelector('#wp-admin-bar-edit-profile a[href]');
+      if (editProfileLink) result.context.userEditProfileHref = editProfileLink.href;
+
+      // WP only renders the network-admin menu group for super admins
+      // (see wp_admin_bar_my_sites_menu()). Use the wrapper id rather
+      // than the dashboard child link so we still catch sites that
+      // customize the inner items.
+      if (adminBar.querySelector('#wp-admin-bar-network-admin')) {
+        result.context.isSuperAdmin = true;
       }
 
       // Status counts. The <li> is only rendered when the user has the
