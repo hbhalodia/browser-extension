@@ -39,16 +39,17 @@ export function Header({
 					)}
 					<span className="wpd-header__hostname">{hostname}</span>
 				</h1>
-				<UserMenu
-					isLoggedIn={loggedIn}
-					avatarUrl={userAvatarUrl}
-					displayName={userDisplayName}
-					origin={origin}
-					url={url}
-					logoutUrl={logoutUrl}
-					editProfileUrl={userEditProfileHref}
-					isSuperAdmin={isSuperAdmin}
-				/>
+				{loggedIn && (
+					<UserMenu
+						avatarUrl={userAvatarUrl}
+						displayName={userDisplayName}
+						origin={origin}
+						url={url}
+						logoutUrl={logoutUrl}
+						editProfileUrl={userEditProfileHref}
+						isSuperAdmin={isSuperAdmin}
+					/>
+				)}
 			</div>
 			{showMeta && (
 				<div className="wpd-header__meta">

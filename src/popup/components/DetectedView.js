@@ -4,6 +4,8 @@ import {
 	seen,
 	globe,
 	dashboard,
+	key,
+	keyboardReturn,
 } from '@wordpress/icons';
 import { Header } from './Header';
 import { ActionRow } from './ActionRow';
@@ -52,15 +54,17 @@ export function DetectedView({ result, host }) {
 				logoutUrl={ctx.adminBarLogoutHref || null}
 				onOpen={openInNewTab}
 			/>
-			{isLoggedIn && (
-				<Section>
-					{isWpAdmin ? (
+			<Section>
+				{isLoggedIn ? (
+					isWpAdmin ? (
 						<WpAdminActions ctx={ctx} origin={origin} url={url} />
 					) : (
 						<FrontendLoggedInActions ctx={ctx} origin={origin} url={url} />
-					)}
-				</Section>
-			)}
+					)
+				) : (
+					<LoggedOutActions origin={origin} url={url} />
+				)}
+			</Section>
 			{isLoggedIn && ctx.newContentItems?.length > 0 && (
 				<NewContent items={ctx.newContentItems} onOpen={openUrl} />
 			)}
@@ -164,6 +168,25 @@ function FrontendLoggedInActions({ ctx, origin, url }) {
 				onNewTab={() => runAction('admin', { origin, url, newTab: true })}
 			/>
 			<AdminBarSection ctx={ctx} origin={origin} prefs={prefs} onToggle={toggleAdminBar} />
+		</>
+	);
+}
+
+function LoggedOutActions({ origin, url }) {
+	return (
+		<>
+			<ActionRow
+				icon={key}
+				label="Log In"
+				onClick={() => runAction('login', { origin, url })}
+				onNewTab={() => runAction('login', { origin, url, newTab: true })}
+			/>
+			<ActionRow
+				icon={keyboardReturn}
+				label="Log In, Return to Page"
+				onClick={() => runAction('login-return', { origin, url })}
+				onNewTab={() => runAction('login-return', { origin, url, newTab: true })}
+			/>
 		</>
 	);
 }
