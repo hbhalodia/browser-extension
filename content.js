@@ -48,10 +48,11 @@
     try {
       const data = await chrome.storage.local.get('wp_preferences_v1');
       const prefs = (data.wp_preferences_v1 || {})[location.origin];
-      // Default: hidden.
-      return !prefs || prefs.adminBarHidden !== false;
+      // Default: shown. Hide only when the user has explicitly toggled
+      // it off for this origin.
+      return !!prefs && prefs.adminBarHidden === true;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
