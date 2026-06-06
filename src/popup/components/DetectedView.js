@@ -6,14 +6,12 @@ import {
 	dashboard,
 	key,
 	keyboardReturn,
-	login,
 } from '@wordpress/icons';
 import { Header } from './Header';
 import { ActionRow } from './ActionRow';
 import { ToggleRow } from './ToggleRow';
 import { DevTools } from './DevTools';
 import { NewContent } from './NewContent';
-import { InlineConfirm } from './InlineConfirm';
 import { SiteInfoPanel } from './SiteInfoPanel';
 import { usePrefs } from '../hooks/usePrefs';
 import { runAction, applyAdminBarPref, requestRestEditUrl } from '../lib/actions';
@@ -45,9 +43,15 @@ export function DetectedView({ result, host }) {
 				wpVersion={ctx.generatorVersion || null}
 				loggedIn={isLoggedIn}
 				origin={origin}
+				url={url}
 				updateCount={ctx.updateCount || null}
 				commentCount={ctx.commentCount || null}
 				siteIconUrl={ctx.siteIconUrl || null}
+				userAvatarUrl={ctx.userAvatarUrl || null}
+				userDisplayName={ctx.userDisplayName || null}
+				userEditProfileHref={ctx.userEditProfileHref || null}
+				isSuperAdmin={!!ctx.isSuperAdmin}
+				logoutUrl={ctx.adminBarLogoutHref || null}
 				onOpen={openInNewTab}
 			/>
 			<Section>
@@ -59,15 +63,6 @@ export function DetectedView({ result, host }) {
 					)
 				) : (
 					<LoggedOutActions origin={origin} url={url} />
-				)}
-
-				{isLoggedIn && (
-					<InlineConfirm
-						icon={login}
-						label="Log Out"
-						onConfirm={() => runAction('signout', { origin, url, logoutUrl: ctx.adminBarLogoutHref })}
-						destructive
-					/>
 				)}
 			</Section>
 			{isLoggedIn && ctx.newContentItems?.length > 0 && (
@@ -177,6 +172,25 @@ function FrontendLoggedInActions({ ctx, origin, url }) {
 	);
 }
 
+function LoggedOutActions({ origin, url }) {
+	return (
+		<>
+			<ActionRow
+				icon={key}
+				label="Log In"
+				onClick={() => runAction('login', { origin, url })}
+				onNewTab={() => runAction('login', { origin, url, newTab: true })}
+			/>
+			<ActionRow
+				icon={keyboardReturn}
+				label="Log In, Return to Page"
+				onClick={() => runAction('login-return', { origin, url })}
+				onNewTab={() => runAction('login-return', { origin, url, newTab: true })}
+			/>
+		</>
+	);
+}
+
 function AdminBarSection({ ctx, origin, prefs, onToggle }) {
 	if (ctx.hasAdminBar) {
 		return <ToggleRow icon={seen} label="Show Admin Bar" checked={!prefs.adminBarHidden} onChange={onToggle} />;
@@ -198,25 +212,6 @@ function AdminBarSection({ ctx, origin, prefs, onToggle }) {
 					Check profile →
 				</button>
 			</div>
-		</>
-	);
-}
-
-function LoggedOutActions({ origin, url }) {
-	return (
-		<>
-			<ActionRow
-				icon={key}
-				label="Log In"
-				onClick={() => runAction('login', { origin, url })}
-				onNewTab={() => runAction('login', { origin, url, newTab: true })}
-			/>
-			<ActionRow
-				icon={keyboardReturn}
-				label="Log In, Return to Page"
-				onClick={() => runAction('login-return', { origin, url })}
-				onNewTab={() => runAction('login-return', { origin, url, newTab: true })}
-			/>
 		</>
 	);
 }

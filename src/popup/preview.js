@@ -21,13 +21,21 @@ window.WPHost = {
 };
 
 // Minimal chrome.* shim so usePrefs / useEffect-driven handlers don't crash.
+// sendMessage returns a canned current-user response so the UserMenu role
+// line renders in the dev preview without a real WP backend.
 window.chrome = {
 	tabs: {
 		query: async () => [{ id: 1, url: 'https://example.test/' }],
-		sendMessage: async () => ({}),
+		sendMessage: async (_tabId, msg) => {
+			if (msg?.type === 'GET_CURRENT_USER') {
+				return { user: { id: 1, name: 'Jane Doe', roles: ['administrator'] } };
+			}
+			return {};
+		},
 	},
 	runtime: { sendMessage: async () => null },
 	storage: { local: { get: async () => ({}), set: async () => {} } },
+	scripting: { executeScript: async () => [{ result: 'fake-nonce' }] },
 };
 
 const fixtures = [
@@ -52,6 +60,11 @@ const fixtures = [
 							updateCount: 3,
 							commentCount: 2,
 							hasQueryMonitor: true,
+							userAvatarUrl: 'https://secure.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=64',
+							userDisplayName: 'Jane Doe',
+							userEditProfileHref: 'https://myblog.test/wp-admin/profile.php',
+							isSuperAdmin: true,
+							adminBarLogoutHref: 'https://myblog.test/wp-login.php?action=logout&_wpnonce=abc',
 							newContentItems: [
 								{ id: 'post', label: 'Post', href: 'https://myblog.test/wp-admin/post-new.php' },
 								{ id: 'page', label: 'Page', href: 'https://myblog.test/wp-admin/post-new.php?post_type=page' },
@@ -84,6 +97,10 @@ const fixtures = [
 							postStatus: 'publish',
 							adminBarViewHref: 'https://myblog.test/hello-world/',
 							generatorVersion: '6.4.2',
+							userAvatarUrl: 'https://secure.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=64',
+							userDisplayName: 'Jane Doe',
+							userEditProfileHref: 'https://myblog.test/wp-admin/profile.php',
+							adminBarLogoutHref: 'https://myblog.test/wp-login.php?action=logout&_wpnonce=abc',
 						},
 					},
 				}}

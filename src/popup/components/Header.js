@@ -2,6 +2,7 @@ import { Badge } from '@wordpress/ui';
 import { update, postComments } from '@wordpress/icons';
 import { HostBadge } from './HostBadge';
 import { StatusBadge } from './StatusBadge';
+import { UserMenu } from './UserMenu';
 
 export function Header({
 	hostname,
@@ -9,33 +10,51 @@ export function Header({
 	wpVersion = null,
 	loggedIn = false,
 	origin = null,
+	url = null,
 	updateCount = null,
 	commentCount = null,
 	siteIconUrl = null,
+	userAvatarUrl = null,
+	userDisplayName = null,
+	userEditProfileHref = null,
+	isSuperAdmin = false,
+	logoutUrl = null,
 	onOpen,
 }) {
 	const hasStatus = (updateCount && updateCount > 0) || (commentCount && commentCount > 0);
-	const showMeta = host || wpVersion || loggedIn;
+	const showMeta = host || wpVersion;
 	return (
 		<header className="wpd-header">
-			<h1 className="wpd-header__title" title={hostname}>
-				{siteIconUrl && (
-					<img
-						className="wpd-header__site-icon"
-						src={siteIconUrl}
-						alt=""
-						loading="lazy"
-						referrerPolicy="no-referrer"
-						onError={(e) => { e.currentTarget.style.display = 'none'; }}
+			<div className="wpd-header__top">
+				<h1 className="wpd-header__title" title={hostname}>
+					{siteIconUrl && (
+						<img
+							className="wpd-header__site-icon"
+							src={siteIconUrl}
+							alt=""
+							loading="lazy"
+							referrerPolicy="no-referrer"
+							onError={(e) => { e.currentTarget.style.display = 'none'; }}
+						/>
+					)}
+					<span className="wpd-header__hostname">{hostname}</span>
+				</h1>
+				{loggedIn && (
+					<UserMenu
+						avatarUrl={userAvatarUrl}
+						displayName={userDisplayName}
+						origin={origin}
+						url={url}
+						logoutUrl={logoutUrl}
+						editProfileUrl={userEditProfileHref}
+						isSuperAdmin={isSuperAdmin}
 					/>
 				)}
-				<span className="wpd-header__hostname">{hostname}</span>
-			</h1>
+			</div>
 			{showMeta && (
 				<div className="wpd-header__meta">
 					{host && <HostBadge host={host} />}
 					{wpVersion && <Badge intent="none">WordPress {wpVersion}</Badge>}
-					{loggedIn && <Badge intent="informational">Logged in</Badge>}
 				</div>
 			)}
 			{hasStatus && origin && (

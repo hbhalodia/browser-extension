@@ -123,6 +123,24 @@ export function useDetection() {
 							const view    = ab.querySelector('#wp-admin-bar-view a[href]');
 							const preview = ab.querySelector('#wp-admin-bar-preview a[href]');
 							const logout  = ab.querySelector('#wp-admin-bar-logout a[href]');
+							const userInfoImg = ab.querySelector('#wp-admin-bar-user-info img.avatar');
+							const fallbackImg = ab.querySelector('#wp-admin-bar-my-account img.avatar');
+							const avatarImg = userInfoImg || fallbackImg;
+							let userAvatarUrl = null;
+							if (avatarImg && avatarImg.getAttribute('src')) {
+								try {
+									const p = new URL(avatarImg.src).protocol;
+									if (p === 'http:' || p === 'https:' || p === 'data:') {
+										userAvatarUrl = avatarImg.src;
+									}
+								} catch (_) { /* malformed avatar URL, skip */ }
+							}
+							const displayNameEl =
+								ab.querySelector('#wp-admin-bar-user-info .display-name')
+								|| ab.querySelector('#wp-admin-bar-my-account .display-name');
+							const userDisplayName = (displayNameEl?.textContent || '').trim() || null;
+							const editProfile = ab.querySelector('#wp-admin-bar-edit-profile a[href]');
+							const isSuperAdmin = !!ab.querySelector('#wp-admin-bar-network-admin');
 							const newLinks = ab.querySelectorAll('#wp-admin-bar-new-content .ab-submenu > li[id] > a[href]');
 							// Same-origin + /wp-admin/ guard: hrefs come from page DOM
 							// and a malicious page could fake the admin bar with
@@ -145,6 +163,10 @@ export function useDetection() {
 								adminBarEditHref: edit?.href || null,
 								adminBarViewHref: view?.href || preview?.href || null,
 								adminBarLogoutHref: logout?.href || null,
+								userAvatarUrl,
+								userDisplayName,
+								userEditProfileHref: editProfile?.href || null,
+								isSuperAdmin,
 								postStatus: view ? 'publish' : (preview ? 'draft' : null),
 								newContentItems,
 								hasQueryMonitor: !!qmPanel || !!ab.querySelector('#wp-admin-bar-query-monitor'),
@@ -168,6 +190,10 @@ export function useDetection() {
 							if (live.adminBarEditHref) lc.adminBarEditHref = live.adminBarEditHref;
 							if (live.adminBarViewHref) lc.adminBarViewHref = live.adminBarViewHref;
 							if (live.adminBarLogoutHref) lc.adminBarLogoutHref = live.adminBarLogoutHref;
+							if (live.userAvatarUrl) lc.userAvatarUrl = live.userAvatarUrl;
+							if (live.userDisplayName) lc.userDisplayName = live.userDisplayName;
+							if (live.userEditProfileHref) lc.userEditProfileHref = live.userEditProfileHref;
+							lc.isSuperAdmin = !!live.isSuperAdmin;
 							if (live.postStatus) lc.postStatus = live.postStatus;
 							if (live.newContentItems?.length) lc.newContentItems = live.newContentItems;
 							if (live.hasQueryMonitor) lc.hasQueryMonitor = true;
@@ -234,6 +260,10 @@ export function useDetection() {
 							if (fc.adminBarEditHref) lc.adminBarEditHref = fc.adminBarEditHref;
 							if (fc.adminBarViewHref) lc.adminBarViewHref = fc.adminBarViewHref;
 							if (fc.adminBarLogoutHref) lc.adminBarLogoutHref = fc.adminBarLogoutHref;
+							if (fc.userAvatarUrl) lc.userAvatarUrl = fc.userAvatarUrl;
+							if (fc.userDisplayName) lc.userDisplayName = fc.userDisplayName;
+							if (fc.userEditProfileHref) lc.userEditProfileHref = fc.userEditProfileHref;
+							lc.isSuperAdmin = !!fc.isSuperAdmin;
 							if (fc.postStatus) lc.postStatus = fc.postStatus;
 							if (fc.updateCount != null) lc.updateCount = fc.updateCount;
 							if (fc.commentCount != null) lc.commentCount = fc.commentCount;
