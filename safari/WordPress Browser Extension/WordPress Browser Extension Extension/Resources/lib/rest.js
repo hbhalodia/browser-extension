@@ -20,13 +20,23 @@
   };
 
   /**
-   * Normalizes a REST root to end with '/'. Accepts the value captured
-   * from <link rel="https://api.w.org/">, or an empty/missing value in
-   * which case we synthesize the conventional `${origin}/wp-json/`.
+   * Normalizes a same-origin REST root to end with '/'. Accepts the value
+   * captured from <link rel="https://api.w.org/">, or an empty/missing/
+   * untrusted value in which case we synthesize the conventional
+   * `${origin}/wp-json/`.
    */
   function normalizeRoot(restApiRoot, origin) {
-    const root = restApiRoot || `${origin}/wp-json/`;
-    return root.endsWith('/') ? root : root + '/';
+    const fallback = `${origin}/wp-json/`;
+    try {
+      const originUrl = new URL(origin);
+      const rootUrl = new URL(restApiRoot || fallback, originUrl);
+      const safeProtocol = rootUrl.protocol === 'http:' || rootUrl.protocol === 'https:';
+      if (safeProtocol && rootUrl.origin === originUrl.origin) {
+        const href = rootUrl.href;
+        return href.endsWith('/') ? href : href + '/';
+      }
+    } catch (_) { /* invalid root or origin */ }
+    return fallback;
   }
 
   /**
@@ -252,6 +262,27 @@
   }
 
   /**
+   * Current user — `/wp/v2/users/me?context=edit`. Cookie auth + nonce.
+   * `edit` context is what exposes the `roles` field (default `view`
+   * context omits it); WP always allows the current user to read their
+   * own record in edit context, so any logged-in user works. Returns the
+   * user object or null on any failure (logged out, missing nonce, etc.).
+   */
+  async function fetchCurrentUser({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+    const root = normalizeRoot(restApiRoot, origin);
+    try {
+      const res = await fetchImpl(`${root}wp/v2/users/me?context=edit`, {
+        credentials: 'include',
+        headers: nonce ? { 'X-WP-Nonce': nonce } : undefined,
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
    * Raw post content — requires the user to be able to edit the given post
    * (WP returns 401 otherwise). Returns the content string with block
    * comments intact, or null on any failure. Used by the block inspector
@@ -313,6 +344,7 @@
     fetchSiteInfo,
     fetchActiveTheme,
     fetchPluginsDetail,
+    fetchCurrentUser,
     fetchRawContent,
     findNonceInDocument,
     isSameOriginAdminUrl,

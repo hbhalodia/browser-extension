@@ -47,7 +47,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 	// commonly just 'subscriber', so REST would mislabel them.
 	const roleLabel = isSuperAdmin ? 'Super Admin' : restRole;
 
-	const profileUrl = editProfileUrl || `${origin}/wp-admin/profile.php`;
+	const profileUrl = safeProfileUrl(editProfileUrl, origin);
 	const buttonLabel = displayName ? `Account menu for ${displayName}` : 'Account menu';
 	// Admin bar avatars from gravatar.com carry the user's hash in the path.
 	// Custom-avatar plugins (User Profile Picture, etc.) point at an upload
@@ -213,6 +213,19 @@ function extractGravatarHash(avatarUrl) {
 		return m ? m[1] : null;
 	} catch (_) {
 		return null;
+	}
+}
+
+function safeProfileUrl(editProfileUrl, origin) {
+	const fallback = `${origin}/wp-admin/profile.php`;
+	if (typeof editProfileUrl !== 'string' || !editProfileUrl) return fallback;
+	try {
+		const u = new URL(editProfileUrl);
+		if (u.origin !== origin) return fallback;
+		if (!/^\/wp-admin\//.test(u.pathname)) return fallback;
+		return u.href;
+	} catch (_) {
+		return fallback;
 	}
 }
 

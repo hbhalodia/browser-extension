@@ -584,6 +584,16 @@ async function main() {
     assert(user && Array.isArray(user.roles) && user.roles[0] === 'administrator',
       'response JSON returned verbatim');
 
+    capturedUrl = null;
+    await ctx.WPRest.fetchCurrentUser({
+      restApiRoot: 'https://attacker.example/wp-json/',
+      origin: 'https://example.com',
+      nonce: 'deadbeef',
+      fetchImpl: mockFetch,
+    });
+    assert(capturedUrl === 'https://example.com/wp-json/wp/v2/users/me?context=edit',
+      'off-origin REST root falls back to same-origin /wp-json/');
+
     // Non-2xx → null.
     const nullUser = await ctx.WPRest.fetchCurrentUser({
       restApiRoot: 'https://example.com/wp-json/',
