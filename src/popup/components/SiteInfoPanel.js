@@ -1,59 +1,76 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, info as infoIcon } from '@wordpress/icons';
 import { requestSiteInfo } from '../lib/actions';
+import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
 
 /**
  * Surfaces whatever metadata we can gather about the site: active theme,
  * installed plugins, site name/description, REST namespaces.
  *
- * Rendered progressively — DOM-detected slugs appear immediately when the
- * panel opens; the REST round-trip (fired lazily on first open) then fills
- * in human-readable names, versions, and any extras only the REST API
- * exposes. The REST call can return partial data: site info is public,
- * theme/plugin detail require admin capabilities.
+ * Site info is fetched lazily on first expand. DOM-detected slugs and REST
+ * data are merged only after that fetch settles so counts and pills do not
+ * jump while loading (see #5).
  */
 export function SiteInfoPanel({ ctx, origin, onOpen }) {
 	const [open, setOpen] = useState(false);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [attempted, setAttempted] = useState(false);
-
-	const themeSlug = ctx.themeSlug || null;
-	const pluginSlugs = useMemo(() => ctx.pluginSlugs || [], [ctx.pluginSlugs]);
+	const fetchStartedRef = useRef(false);
+	const snapshotRef = useRef({ pluginSlugs: [], themeSlug: null });
 
 	const handleOpenChange = (next) => {
 		setOpen(next);
-		if (next && !attempted && !loading) {
-			setLoading(true);
-			requestSiteInfo().then((res) => {
+		if (!next || fetchStartedRef.current) {
+			return;
+		}
+		// Guard synchronously — setLoading(true) is async, and Collapsible can
+		// emit onOpenChange(true) more than once per expand, which previously
+		// kicked off overlapping GET_SITE_INFO requests that completed out of
+		// order and made the plugin list/count flicker.
+		fetchStartedRef.current = true;
+		snapshotRef.current = {
+			pluginSlugs: Array.isArray(ctx.pluginSlugs) ? [...ctx.pluginSlugs] : [],
+			themeSlug: ctx.themeSlug || null,
+		};
+		setLoading(true);
+		requestSiteInfo()
+			.then((res) => {
 				setData(res);
+			})
+			.finally(() => {
 				setLoading(false);
 				setAttempted(true);
 			});
-		}
 	};
 
 	const activeTheme = data?.activeTheme || null;
 	const plugins = data?.plugins || null;
 	const siteInfo = data?.siteInfo || null;
+	const { pluginSlugs: snapshotSlugs, themeSlug: snapshotTheme } = snapshotRef.current;
 
-	// Merge DOM-detected plugin slugs with REST data when available.
-	// REST is the richer source but needs admin capability, so the DOM list
-	// is the fallback that still works for logged-out visitors.
-	const pluginRows = useMemo(
-		() => mergePlugins(pluginSlugs, plugins, siteInfo?.namespaces),
-		[pluginSlugs, plugins, siteInfo],
-	);
+	const pluginRows = useMemo(() => {
+		if (loading) {
+			return [];
+		}
+		return mergePlugins(snapshotSlugs, plugins, siteInfo?.namespaces);
+	}, [loading, snapshotSlugs, plugins, siteInfo]);
 
-	const themeInfo = useMemo(
-		() => mergeTheme(themeSlug, activeTheme),
-		[themeSlug, activeTheme],
-	);
+	const themeInfo = useMemo(() => {
+		if (loading) {
+			return null;
+		}
+		return mergeTheme(snapshotTheme, activeTheme);
+	}, [loading, snapshotTheme, activeTheme]);
 
 	const hasAnything = !!themeInfo || pluginRows.length > 0;
+	const showPluginsSection =
+		loading || pluginRows.length > 0 || (attempted && snapshotSlugs.length > 0);
 
-	if (!hasAnything && !ctx.restApiRoot) return null;
+	if (!hasAnything && !ctx.restApiRoot && !loading && !attempted) {
+		return null;
+	}
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={handleOpenChange} className="wpd-siteinfo">
@@ -71,25 +88,20 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="wpd-siteinfo__panel">
 				<div className="wpd-siteinfo__body">
-					{themeInfo && (
+					{loading && (
+						<p className="wpd-siteinfo__hint wpd-siteinfo__hint--loading" aria-live="polite">
+							Loading site information…
+						</p>
+					)}
+
+					{!loading && themeInfo && (
 						<InfoGroup label="Active theme">
 							<ThemeRow theme={themeInfo} origin={origin} onOpen={onOpen} />
 						</InfoGroup>
 					)}
 
-					{(pluginRows.length > 0 || loading) && (
-						<InfoGroup
-							label={
-								plugins
-									? `Plugins (${pluginRows.length})`
-									: pluginRows.length
-										? `Detected plugins (${pluginRows.length})`
-										: 'Plugins'
-							}
-						>
-							{loading && pluginRows.length === 0 && (
-								<p className="wpd-siteinfo__hint">Loading…</p>
-							)}
+					{!loading && showPluginsSection && (
+						<InfoGroup label={pluginsPluginLabel(plugins, pluginRows.length)}>
 							{pluginRows.length > 0 && (
 								<div className="wpd-siteinfo__pills">
 									{pluginRows.map((p) => (
@@ -97,7 +109,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 									))}
 								</div>
 							)}
-							{!loading && attempted && !plugins && pluginRows.length > 0 && (
+							{attempted && !plugins && pluginRows.length > 0 && (
 								<p className="wpd-siteinfo__hint">
 									Log in for a comprehensive list of plugins with additional information.
 								</p>
@@ -112,6 +124,16 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			</Collapsible.Panel>
 		</Collapsible.Root>
 	);
+}
+
+function pluginsPluginLabel(plugins, count) {
+	if (plugins) {
+		return `Plugins (${count})`;
+	}
+	if (count > 0) {
+		return `Detected plugins (${count})`;
+	}
+	return 'Plugins';
 }
 
 function InfoGroup({ label, children }) {
@@ -183,70 +205,4 @@ function PluginPill({ plugin, onOpen }) {
 			{label}
 		</button>
 	);
-}
-
-/**
- * Combines the asset-scan theme slug with REST data when the user has
- * edit_theme_options. REST wins on every field it provides; the slug is
- * always shown so we can still say something when REST is inaccessible.
- */
-function mergeTheme(slug, rest) {
-	if (!slug && !rest) return null;
-	if (!rest) return { slug, name: slug, version: null, author: null };
-	return {
-		slug: rest.stylesheet || slug,
-		name: rest.name?.rendered || rest.name || slug,
-		version: rest.version || null,
-		author: rest.author?.rendered || rest.author || null,
-	};
-}
-
-/**
- * Unions the DOM-detected plugin slugs with REST plugin data and namespace
- * hints. Each output row has { slug, name, version, active }. REST rows
- * carry the slug as the first segment of their `plugin` field
- * ("jetpack/jetpack" → "jetpack"). Namespaces (wc/v3, yoast/v1, …) only
- * give us a slug-like hint; treat them the same as DOM slugs.
- */
-function mergePlugins(domSlugs, restPlugins, namespaces) {
-	const bySlug = new Map();
-
-	for (const slug of domSlugs) {
-		bySlug.set(slug, { slug, name: null, version: null, active: null, pluginUri: null });
-	}
-
-	// Namespaces give one extra signal — drop core wp/v2, oembed/1.0 noise.
-	const NS_SKIP = new Set(['wp/v2', 'wp/v2/fields', 'wp-site-health/v1', 'oembed/1.0', 'wp-block-editor/v1', 'akismet/v1']);
-	for (const ns of namespaces || []) {
-		if (NS_SKIP.has(ns)) continue;
-		const slugFromNs = ns.split('/')[0];
-		if (!slugFromNs || slugFromNs === 'wp') continue;
-		if (!bySlug.has(slugFromNs)) {
-			bySlug.set(slugFromNs, { slug: slugFromNs, name: null, version: null, active: null, pluginUri: null });
-		}
-	}
-
-	for (const p of restPlugins || []) {
-		const slug = (p.plugin || '').split('/')[0];
-		if (!slug) continue;
-		const row = {
-			slug,
-			name: p.name || null,
-			version: p.version || null,
-			active: p.status === 'active',
-			pluginUri: p.plugin_uri || null,
-		};
-		bySlug.set(slug, row);
-	}
-
-	// Hide inactive plugins. DOM-detected slugs (active: null) and REST-active
-	// rows pass through; REST-confirmed inactive rows are dropped.
-	return Array.from(bySlug.values())
-		.filter((p) => p.active !== false)
-		.sort((a, b) => a.slug.localeCompare(b.slug));
-}
-
-function stripTags(s) {
-	if (typeof s !== 'string') return '';
-	return s.replace(/<[^>]*>/g, '').trim();
 }
