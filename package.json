@@ -13,8 +13,8 @@
   },
   "homepage": "https://github.com/WordPress/browser-extension#readme",
   "scripts": {
-    "build": "cross-env NODE_ENV=production TENUP_NO_EXTERNALS=true 10up-toolkit build",
-    "start": "cross-env NODE_ENV=development TENUP_NO_EXTERNALS=true 10up-toolkit start",
+    "build": "cross-env NODE_ENV=production wp-scripts build",
+    "start": "cross-env NODE_ENV=development wp-scripts start",
     "build:safari": "npm run build && bash scripts/sync-safari.sh",
     "package:chrome": "bash scripts/package-chrome.sh"
   },
@@ -25,11 +25,14 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "10up-toolkit": "^6.5.1",
+    "@wordpress/scripts": "^30.0.0",
     "cross-env": "^7.0.3",
     "sharp": "^0.34.5"
   },
-  "overrides": {
-    "webpack": "5.99.0"
-  }
+  "browserslist": [
+    "last 2 Chrome versions",
+    "last 2 Firefox versions",
+    "last 2 Safari versions",
+    "last 2 Edge versions"
+  ]
 }

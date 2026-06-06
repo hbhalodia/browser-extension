@@ -39,9 +39,8 @@ cp lib/block-inspector.js  "$STAGE/lib/"
 
 cp popup/popup.html "$STAGE/popup/"
 
-cp dist/popup.css              "$STAGE/dist/"
-cp dist/popup.js               "$STAGE/dist/"
-cp dist/popup.js.LICENSE.txt   "$STAGE/dist/"
+cp dist/popup.css "$STAGE/dist/"
+cp dist/popup.js  "$STAGE/dist/"
 
 cp icons/*.png "$STAGE/icons/"
 

@@ -5,6 +5,10 @@ CLAUDE.md
 .DS_Store
 # preview harness is a dev-only artifact — rebuild locally with npm run build
 dist/preview.*
+# wp-scripts auxiliary output — unused by popup.html, not copied into the
+# Chrome zip or Safari Resources
+dist/*-rtl.css
+dist/*.map
 # release zips produced by scripts/package-chrome.sh — attach to GitHub Releases
 release/
 # Xcode — user-specific state only; the Safari project itself is committed
