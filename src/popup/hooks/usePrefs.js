@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 const PREFS_KEY = 'wp_preferences_v1';
 const GLOBAL_NS = '_global';
-const DEFAULT_PREFS = { adminBarHidden: false, blockInspectorEnabled: false };
+const DEFAULT_PREFS = { adminBarHidden: false, blockInspectorEnabled: false, siteInfoEnabled: false };
 
 // Per-origin pref wins. Falls back to whatever the global namespace sets on
 // the options page; falls back to the hard-coded defaults if neither exists.

@@ -54,8 +54,17 @@ See [`SAFARI.md`](SAFARI.md) — requires Xcode and a one-time Xcode Run (⌘R).
 - **Identify the host** — Detects WP Engine, WordPress VIP, Pantheon, Kinsta, Flywheel, Cloudways, WordPress.com, Pressable, and local dev environments. Cached per origin for 90 days.
 - **Toggle the admin bar** — Hide or show the front-end admin bar per site, without flash. Honors your profile setting and surfaces a clear hint when WP itself has the bar disabled.
 - **One-click sign out** — Inline confirm, then logs out via the admin bar's nonce so WordPress's "are you sure?" page is skipped.
-- **Site Information panel** — Active theme (name, version, author) and a wrap of plugin pills with version-on-hover. Pills link to each plugin's homepage. Powered by the WP REST API for admins, with DOM-scanned slugs as a graceful fallback.
 - **Developer tools** — Mobile preview window (iPhone-sized), bypass page cache, clear cookies + site data (preserving your WP login), Highlight Blocks (outline `wp-block-*` elements with a breadcrumb tooltip), and a Query Monitor toggle when QM is installed.
+
+## Options page
+
+Browser-wide defaults live on a separate options page, surfaced through the browser's extension management UI (Chrome: `chrome://extensions` → Details → Extension options. Safari: Settings → Extensions → preferences pane). No entry point from the popup — these settings are intentionally out of the way.
+
+Current options:
+
+- **Hide admin bar by default** — Flips the per-site default for the admin bar toggle. Per-site choices in the popup always win over this default.
+- **Show site information panel (experimental)** — Adds a panel to the popup that surfaces the active theme, installed plugins, site name, and REST namespaces. Detection is heuristic and asset-path inference can produce duplicates or false positives, so it is off by default. Powered by the WP REST API for admins, with DOM-scanned slugs as a graceful fallback.
+- **Clear all data** — Wipes per-site preferences, the global defaults above, and the cached WordPress detection results. Useful for testing or starting fresh.
 
 ## Development
 

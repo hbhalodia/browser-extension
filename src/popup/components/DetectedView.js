@@ -23,6 +23,7 @@ export function DetectedView({ result, host }) {
 	const isLoggedIn = !!ctx.isLoggedIn;
 	const hostname = useMemo(() => new URL(origin).hostname, [origin]);
 	const isWpAdmin = useMemo(() => /\/wp-admin(\/|$)/.test(new URL(url).pathname), [url]);
+	const [prefs] = usePrefs(origin);
 
 	const openInNewTab = (url) => {
 		chrome.tabs.create({ url });
@@ -68,7 +69,9 @@ export function DetectedView({ result, host }) {
 			{isLoggedIn && ctx.newContentItems?.length > 0 && (
 				<NewContent items={ctx.newContentItems} onOpen={openUrl} />
 			)}
-			<SiteInfoPanel ctx={ctx} origin={origin} onOpen={openUrl} />
+			{prefs.siteInfoEnabled && (
+				<SiteInfoPanel ctx={ctx} origin={origin} onOpen={openUrl} />
+			)}
 			{!isWpAdmin && (
 				<DevTools origin={origin} url={url} hasQueryMonitor={!!ctx.hasQueryMonitor} qmOpen={!!ctx.qmOpen} />
 			)}

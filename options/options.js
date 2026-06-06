@@ -9,6 +9,7 @@ const CACHE_KEY = 'wp_detection_cache_v1';
 const GLOBAL_NS = '_global';
 
 const adminBarToggle = document.getElementById('adminBarHiddenDefault');
+const siteInfoToggle = document.getElementById('siteInfoEnabled');
 const resetButton = document.getElementById('resetData');
 const resetStatus = document.getElementById('resetStatus');
 
@@ -33,9 +34,14 @@ async function saveGlobalPref(key, value) {
 (async () => {
 	const globalPrefs = await loadGlobalPrefs();
 	adminBarToggle.checked = globalPrefs.adminBarHidden === true;
+	siteInfoToggle.checked = globalPrefs.siteInfoEnabled === true;
 
 	adminBarToggle.addEventListener('change', () => {
 		saveGlobalPref('adminBarHidden', adminBarToggle.checked);
+	});
+
+	siteInfoToggle.addEventListener('change', () => {
+		saveGlobalPref('siteInfoEnabled', siteInfoToggle.checked);
 	});
 
 	// Reflect changes that arrive from another tab or context.
@@ -43,6 +49,7 @@ async function saveGlobalPref(key, value) {
 		if (area !== 'local' || !changes[PREFS_KEY]) return;
 		const incoming = (changes[PREFS_KEY].newValue || {})[GLOBAL_NS] || {};
 		adminBarToggle.checked = incoming.adminBarHidden === true;
+		siteInfoToggle.checked = incoming.siteInfoEnabled === true;
 	});
 
 	resetButton.addEventListener('click', async () => {
@@ -53,6 +60,7 @@ async function saveGlobalPref(key, value) {
 		try {
 			await chrome.storage.local.remove([PREFS_KEY, CACHE_KEY]);
 			adminBarToggle.checked = false;
+			siteInfoToggle.checked = false;
 			resetStatus.textContent = 'Cleared.';
 			resetStatus.dataset.tone = 'ok';
 		} catch (_) {
