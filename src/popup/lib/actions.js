@@ -73,6 +73,23 @@ export async function runAction(action, { origin, url, editUrl, viewUrl, logoutU
 	window.close();
 }
 
+/**
+ * True when a click on an action row should open its target in a new tab,
+ * mirroring the gesture people already use on the WordPress admin bar (#29):
+ * a middle-click, Cmd-click on macOS, or Ctrl-click elsewhere.
+ *
+ * Platform-aware on purpose: on macOS Ctrl+click is a context-menu gesture,
+ * not new-tab, so we only honor the Meta (Cmd) key there. Shift (new window)
+ * is intentionally unmapped — the popup only ever opens tabs.
+ */
+export function isNewTabIntent(event) {
+	if (!event) return false;
+	if (event.button === 1) return true; // middle-click
+	const isMac =
+		typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
+	return isMac ? !!event.metaKey : !!event.ctrlKey;
+}
+
 export async function copyToClipboard(text) {
 	try {
 		await navigator.clipboard.writeText(text);
