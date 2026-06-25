@@ -89,7 +89,9 @@
     if (!href || !origin) return false;
     try {
       const u = new URL(href);
-      return u.origin === origin && /^\/wp-admin\//.test(u.pathname);
+      // /wp-admin/ may sit under a subdirectory (e.g. /wordpress/wp-admin/)
+      // on subdir installs (issue #33), so match it anywhere in the path.
+      return u.origin === origin && /\/wp-admin\//.test(u.pathname);
     } catch (_) {
       return false;
     }
@@ -126,12 +128,22 @@
     }
   }
 
+  // Base for synthesized wp-admin URLs. Prefers the detection context's
+  // path-aware baseUrl (carries any subdirectory prefix — issue #33) and
+  // falls back to the bare origin for root installs / contexts that predate
+  // the field.
+  function adminBase(ctx, origin) {
+    return (ctx && ctx.baseUrl) || origin;
+  }
+
   /**
    * Given a detection context, returns an edit URL or null. Async path
    * only — call resolveEditUrlSync first and fall back to this when it
    * returns null AND the context has slugs that need resolving.
    */
   async function resolveEditUrlAsync(ctx, origin, fetchImpl = fetch) {
+    const base = adminBase(ctx, origin);
+
     // Term archive without a numeric ID — resolve via REST.
     if (ctx.pageType === 'term' && ctx.taxonomy && !ctx.termId && ctx.term) {
       const id = await fetchTermId({
@@ -139,7 +151,7 @@
         taxonomy: ctx.taxonomy, slug: ctx.term, fetchImpl,
       });
       if (id) {
-        return `${origin}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${id}`;
+        return `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${id}`;
       }
     }
 
@@ -150,7 +162,7 @@
         slug: ctx.authorSlug, fetchImpl,
       });
       if (id) {
-        return `${origin}/wp-admin/user-edit.php?user_id=${id}`;
+        return `${base}/wp-admin/user-edit.php?user_id=${id}`;
       }
     }
 
@@ -170,19 +182,21 @@
       return ctx.adminBarEditHref;
     }
 
+    const base = adminBase(ctx, origin);
+
     // Single post / page / CPT
     if (ctx.postId && ctx.pageType === 'single') {
-      return `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
+      return `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
     }
 
     // Term archive — ID already in context
     if (ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-      return `${origin}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
+      return `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
     }
 
     // Author archive — ID already in context
     if (ctx.pageType === 'author' && ctx.authorId) {
-      return `${origin}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
+      return `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
     }
 
     return null;

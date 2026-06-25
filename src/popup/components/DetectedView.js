@@ -20,6 +20,12 @@ import { editLabel, editDisabledLabel, postTypeLabel } from '../lib/labels';
 export function DetectedView({ result, host }) {
 	const { detection, origin, url } = result;
 	const ctx = detection.context || {};
+	// Path-aware install base — carries any subdirectory prefix so every
+	// synthesized admin/login link resolves correctly (issue #33). Falls
+	// back to the origin for root installs or cache-only detections that
+	// predate the field. `origin` is kept separately for same-origin
+	// security checks on DOM-sourced hrefs.
+	const baseUrl = ctx.baseUrl || origin;
 	const isLoggedIn = !!ctx.isLoggedIn;
 	const hostname = useMemo(() => new URL(origin).hostname, [origin]);
 	const isWpAdmin = useMemo(() => /\/wp-admin(\/|$)/.test(new URL(url).pathname), [url]);
@@ -44,6 +50,7 @@ export function DetectedView({ result, host }) {
 				wpVersion={ctx.generatorVersion || null}
 				loggedIn={isLoggedIn}
 				origin={origin}
+				baseUrl={baseUrl}
 				url={url}
 				updateCount={ctx.updateCount || null}
 				commentCount={ctx.commentCount || null}
@@ -58,19 +65,19 @@ export function DetectedView({ result, host }) {
 			<Section>
 				{isLoggedIn ? (
 					isWpAdmin ? (
-						<WpAdminActions ctx={ctx} origin={origin} url={url} />
+						<WpAdminActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} />
 					) : (
-						<FrontendLoggedInActions ctx={ctx} origin={origin} url={url} />
+						<FrontendLoggedInActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} />
 					)
 				) : (
-					<LoggedOutActions origin={origin} url={url} />
+					<LoggedOutActions origin={origin} baseUrl={baseUrl} url={url} />
 				)}
 			</Section>
 			{isLoggedIn && ctx.newContentItems?.length > 0 && (
 				<NewContent items={ctx.newContentItems} onOpen={openUrl} />
 			)}
 			{prefs.siteInfoEnabled && (
-				<SiteInfoPanel ctx={ctx} origin={origin} onOpen={openUrl} />
+				<SiteInfoPanel ctx={ctx} origin={origin} baseUrl={baseUrl} onOpen={openUrl} />
 			)}
 			{!isWpAdmin && (
 				<DevTools origin={origin} url={url} hasQueryMonitor={!!ctx.hasQueryMonitor} qmOpen={!!ctx.qmOpen} />
@@ -87,7 +94,7 @@ function Section({ children }) {
 	);
 }
 
-function WpAdminActions({ ctx, origin, url }) {
+function WpAdminActions({ ctx, origin, baseUrl, url }) {
 	// If the admin bar has a view/preview link, the user is on an edit screen.
 	// WordPress provides the correct URL — including the preview nonce for
 	// drafts — so we use it directly.
@@ -119,20 +126,20 @@ function WpAdminActions({ ctx, origin, url }) {
 			<ActionRow
 				icon={globe}
 				label="Visit Site"
-				onClick={() => runAction('visit-site', { origin, url })}
-				onNewTab={() => runAction('visit-site', { origin, url, newTab: true })}
+				onClick={() => runAction('visit-site', { origin, baseUrl, url })}
+				onNewTab={() => runAction('visit-site', { origin, baseUrl, url, newTab: true })}
 			/>
 			<ActionRow
 				icon={dashboard}
 				label="WordPress Admin"
-				onClick={() => runAction('admin', { origin, url })}
-				onNewTab={() => runAction('admin', { origin, url, newTab: true })}
+				onClick={() => runAction('admin', { origin, baseUrl, url })}
+				onNewTab={() => runAction('admin', { origin, baseUrl, url, newTab: true })}
 			/>
 		</>
 	);
 }
 
-function FrontendLoggedInActions({ ctx, origin, url }) {
+function FrontendLoggedInActions({ ctx, origin, baseUrl, url }) {
 	const [prefs, savePref] = usePrefs(origin);
 	const { editUrl, resolving } = useEditUrlResolution(ctx, origin);
 
@@ -160,41 +167,41 @@ function FrontendLoggedInActions({ ctx, origin, url }) {
 				hint={resolving ? null : shortcutHint}
 				loading={resolving}
 				disabled={!editActionEnabled}
-				onClick={() => runAction('edit', { origin, url, editUrl })}
-				onNewTab={() => runAction('edit', { origin, url, editUrl, newTab: true })}
+				onClick={() => runAction('edit', { origin, baseUrl, url, editUrl })}
+				onNewTab={() => runAction('edit', { origin, baseUrl, url, editUrl, newTab: true })}
 				copyUrl={editActionEnabled ? editUrl : null}
 			/>
 			<ActionRow
 				icon={dashboard}
 				label="WordPress Admin"
-				onClick={() => runAction('admin', { origin, url })}
-				onNewTab={() => runAction('admin', { origin, url, newTab: true })}
+				onClick={() => runAction('admin', { origin, baseUrl, url })}
+				onNewTab={() => runAction('admin', { origin, baseUrl, url, newTab: true })}
 			/>
-			<AdminBarSection ctx={ctx} origin={origin} prefs={prefs} onToggle={toggleAdminBar} />
+			<AdminBarSection ctx={ctx} origin={origin} baseUrl={baseUrl} prefs={prefs} onToggle={toggleAdminBar} />
 		</>
 	);
 }
 
-function LoggedOutActions({ origin, url }) {
+function LoggedOutActions({ origin, baseUrl, url }) {
 	return (
 		<>
 			<ActionRow
 				icon={key}
 				label="Log In"
-				onClick={() => runAction('login', { origin, url })}
-				onNewTab={() => runAction('login', { origin, url, newTab: true })}
+				onClick={() => runAction('login', { origin, baseUrl, url })}
+				onNewTab={() => runAction('login', { origin, baseUrl, url, newTab: true })}
 			/>
 			<ActionRow
 				icon={keyboardReturn}
 				label="Log In, Return to Page"
-				onClick={() => runAction('login-return', { origin, url })}
-				onNewTab={() => runAction('login-return', { origin, url, newTab: true })}
+				onClick={() => runAction('login-return', { origin, baseUrl, url })}
+				onNewTab={() => runAction('login-return', { origin, baseUrl, url, newTab: true })}
 			/>
 		</>
 	);
 }
 
-function AdminBarSection({ ctx, origin, prefs, onToggle }) {
+function AdminBarSection({ ctx, origin, baseUrl, prefs, onToggle }) {
 	if (ctx.hasAdminBar) {
 		return <ToggleRow icon={seen} label="Show Admin Bar" checked={!prefs.adminBarHidden} onChange={onToggle} />;
 	}
@@ -210,7 +217,7 @@ function AdminBarSection({ ctx, origin, prefs, onToggle }) {
 				<button
 					type="button"
 					className="wpd-info-row__link"
-					onClick={() => runAction('profile', { origin, url: '' })}
+					onClick={() => runAction('profile', { origin, baseUrl, url: '' })}
 				>
 					Check profile →
 				</button>

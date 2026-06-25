@@ -12,7 +12,9 @@ import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
  * data are merged only after that fetch settles so counts and pills do not
  * jump while loading (see #5).
  */
-export function SiteInfoPanel({ ctx, origin, onOpen }) {
+export function SiteInfoPanel({ ctx, origin, baseUrl, onOpen }) {
+	// Carries any subdirectory prefix for synthesized admin links (#33).
+	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			themeSlug: ctx.themeSlug || null,
 		};
 		setLoading(true);
-		requestSiteInfo()
+		requestSiteInfo(base)
 			.then((res) => {
 				setData(res);
 			})
@@ -96,7 +98,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 
 					{!loading && themeInfo && (
 						<InfoGroup label="Active theme">
-							<ThemeRow theme={themeInfo} origin={origin} onOpen={onOpen} />
+							<ThemeRow theme={themeInfo} origin={base} onOpen={onOpen} />
 						</InfoGroup>
 					)}
 

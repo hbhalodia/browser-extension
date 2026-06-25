@@ -14,7 +14,10 @@ import { runAction, requestCurrentUser } from '../lib/actions';
  * the destructive logout uses a regular button so its two-click confirm
  * can live inside the open popover.
  */
-export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editProfileUrl, isSuperAdmin = false }) {
+export function UserMenu({ avatarUrl, displayName, origin, baseUrl, url, logoutUrl, editProfileUrl, isSuperAdmin = false }) {
+	// Path-aware base for synthesized admin links (carries any subdirectory
+	// prefix — issue #33); falls back to the origin for root installs.
+	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
 	const [confirmingLogout, setConfirmingLogout] = useState(false);
 	const [restRole, setRestRole] = useState(null);
@@ -26,7 +29,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 	useEffect(() => {
 		if (isSuperAdmin) return;
 		let cancelled = false;
-		requestCurrentUser().then((user) => {
+		requestCurrentUser(base).then((user) => {
 			if (cancelled) return;
 			const label = roleLabelFromUser(user);
 			if (label) setRestRole(label);
@@ -47,7 +50,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 	// commonly just 'subscriber', so REST would mislabel them.
 	const roleLabel = isSuperAdmin ? 'Super Admin' : restRole;
 
-	const profileUrl = safeProfileUrl(editProfileUrl, origin);
+	const profileUrl = safeProfileUrl(editProfileUrl, origin, base);
 	const buttonLabel = displayName ? `Account menu for ${displayName}` : 'Account menu';
 	// Admin bar avatars from gravatar.com carry the user's hash in the path.
 	// Custom-avatar plugins (User Profile Picture, etc.) point at an upload
@@ -64,7 +67,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 		}
 		clearTimeout(confirmTimerRef.current);
 		setOpen(false);
-		runAction('signout', { origin, url, logoutUrl });
+		runAction('signout', { origin, baseUrl: base, url, logoutUrl });
 	};
 
 	return (
@@ -216,8 +219,8 @@ function extractGravatarHash(avatarUrl) {
 	}
 }
 
-function safeProfileUrl(editProfileUrl, origin) {
-	const fallback = `${origin}/wp-admin/profile.php`;
+function safeProfileUrl(editProfileUrl, origin, base = origin) {
+	const fallback = `${base}/wp-admin/profile.php`;
 	if (typeof editProfileUrl !== 'string' || !editProfileUrl) return fallback;
 	try {
 		const u = new URL(editProfileUrl);
