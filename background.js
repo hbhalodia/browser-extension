@@ -259,7 +259,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (editUrl) {
-    chrome.tabs.update(tab.id, { url: editUrl });
+    // Await + guard: the active tab can close or navigate between resolving
+    // the edit URL (which may involve an async REST round-trip above) and this
+    // navigation. A fire-and-forget update against a gone tab surfaces an
+    // "Unchecked runtime.lastError: No tab with id" in the service worker.
+    try {
+      await chrome.tabs.update(tab.id, { url: editUrl });
+    } catch (_) { /* tab closed before we could navigate it */ }
   }
 });
 
