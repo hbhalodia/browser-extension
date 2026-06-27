@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Popover, VisuallyHidden } from '@wordpress/ui';
 import { people, login, image } from '@wordpress/icons';
-import { runAction, requestCurrentUser } from '../lib/actions';
+import { runAction } from '../lib/actions';
 
 /**
  * Circular avatar button in the header's top-right. Opens a small popover
@@ -14,25 +14,21 @@ import { runAction, requestCurrentUser } from '../lib/actions';
  * the destructive logout uses a regular button so its two-click confirm
  * can live inside the open popover.
  */
-export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editProfileUrl, isSuperAdmin = false }) {
+export function UserMenu({ avatarUrl, displayName, origin, baseUrl, url, logoutUrl, editProfileUrl, isSuperAdmin = false, user = null }) {
+	// Path-aware base for synthesized admin links (carries any subdirectory
+	// prefix — issue #33); falls back to the origin for root installs.
+	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
 	const [confirmingLogout, setConfirmingLogout] = useState(false);
-	const [restRole, setRestRole] = useState(null);
 	const confirmTimerRef = useRef(null);
 
-	// Pre-fetch the role on mount so the dropdown opens with the label
-	// already in place. Skipped for super admins — the DOM-derived "Super
-	// Admin" badge takes priority and a per-site role would be misleading.
-	useEffect(() => {
-		if (isSuperAdmin) return;
-		let cancelled = false;
-		requestCurrentUser().then((user) => {
-			if (cancelled) return;
-			const label = roleLabelFromUser(user);
-			if (label) setRestRole(label);
-		});
-		return () => { cancelled = true; };
-	}, [isSuperAdmin]);
+	// The current user is fetched once by DetectedView and passed down. Derive
+	// the role label from it. Skipped for super admins — the DOM-derived
+	// "Super Admin" badge takes priority and a per-site role would mislead.
+	const restRole = useMemo(
+		() => (isSuperAdmin ? null : roleLabelFromUser(user)),
+		[isSuperAdmin, user],
+	);
 
 	useEffect(() => {
 		if (!open) {
@@ -47,7 +43,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 	// commonly just 'subscriber', so REST would mislabel them.
 	const roleLabel = isSuperAdmin ? 'Super Admin' : restRole;
 
-	const profileUrl = safeProfileUrl(editProfileUrl, origin);
+	const profileUrl = safeProfileUrl(editProfileUrl, origin, base);
 	const buttonLabel = displayName ? `Account menu for ${displayName}` : 'Account menu';
 	// Admin bar avatars from gravatar.com carry the user's hash in the path.
 	// Custom-avatar plugins (User Profile Picture, etc.) point at an upload
@@ -64,7 +60,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 		}
 		clearTimeout(confirmTimerRef.current);
 		setOpen(false);
-		runAction('signout', { origin, url, logoutUrl });
+		runAction('signout', { origin, baseUrl: base, url, logoutUrl });
 	};
 
 	return (
@@ -216,8 +212,8 @@ function extractGravatarHash(avatarUrl) {
 	}
 }
 
-function safeProfileUrl(editProfileUrl, origin) {
-	const fallback = `${origin}/wp-admin/profile.php`;
+function safeProfileUrl(editProfileUrl, origin, base = origin) {
+	const fallback = `${base}/wp-admin/profile.php`;
 	if (typeof editProfileUrl !== 'string' || !editProfileUrl) return fallback;
 	try {
 		const u = new URL(editProfileUrl);

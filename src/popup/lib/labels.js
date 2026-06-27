@@ -20,6 +20,9 @@ export function editDisabledLabel(ctx) {
 	if (ctx.pageType === 'term') return 'Edit Term (Not Resolvable)';
 	if (ctx.pageType === 'author') return 'Edit Author (Not Resolvable)';
 	if (ctx.pageType === 'search' || ctx.pageType === '404') return 'Nothing to Edit';
+	// Single object the user can't edit (capability-gated) — keep the real
+	// type so the greyed-out row still reads "Edit Post" / "Edit Product".
+	if (ctx.postType) return `Edit ${postTypeLabel(ctx.postType)}`;
 	return 'Edit Page';
 }
 

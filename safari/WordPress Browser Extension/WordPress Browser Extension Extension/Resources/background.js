@@ -184,6 +184,15 @@ async function handleDetection(msg, sender) {
 
 // --- Toolbar icon + title -------------------------------------------------
 
+// chrome.action.setIcon resolves its promise even when the target tab has
+// closed or navigated away — it reports the failure as an unchecked
+// chrome.runtime.lastError instead, so an awaited try/catch never catches it
+// and it surfaces a red "Errors" badge on the extension card. (setTitle does
+// reject and could be awaited, but both use the callback form so each consumes
+// its own lastError.) updateToolbar runs on every tabs.onUpdated tick, exactly
+// when a tab can vanish mid-navigation; a missing tab here is expected.
+const ignoreLastError = () => void chrome.runtime.lastError;
+
 async function updateToolbar(tabId, isWordPress, context) {
   // Three states: not WP (gray + slash), WP but not logged in (gray),
   // WP + logged in (blue). The cache doesn't carry isLoggedIn so on a
@@ -192,22 +201,18 @@ async function updateToolbar(tabId, isWordPress, context) {
   const variant = !isWordPress ? '-inactive'
     : context?.isLoggedIn ? '-active'
     : '';
-  try {
-    await chrome.action.setIcon({
-      tabId,
-      path: {
-        16: `icons/icon-16${variant}.png`,
-        32: `icons/icon-32${variant}.png`,
-      },
-    });
-  } catch (_) { /* icons not shipped yet */ }
+  chrome.action.setIcon({
+    tabId,
+    path: {
+      16: `icons/icon-16${variant}.png`,
+      32: `icons/icon-32${variant}.png`,
+    },
+  }, ignoreLastError);
 
   const title = isWordPress
     ? `WordPress detected${context?.isLoggedIn ? ' — logged in' : ''}`
     : 'WordPress Browser Extension';
-  try {
-    await chrome.action.setTitle({ tabId, title });
-  } catch (_) { /* tab may have closed */ }
+  chrome.action.setTitle({ tabId, title }, ignoreLastError);
 }
 
 // --- Keyboard shortcut: edit this page ------------------------------------
@@ -229,6 +234,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!ctx.isLoggedIn) return;
 
   const origin = result.origin;
+  // Path-aware base so synthesized admin URLs respect a subdirectory
+  // install (issue #33); falls back to the origin for root installs.
+  const base = ctx.baseUrl || origin;
 
   // Try sync resolution first (covers most cases).
   // resolveEditUrlSync isn't available here (it's in lib/rest.js, loaded
@@ -241,13 +249,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (!editUrl && ctx.postId && ctx.pageType === 'single') {
-    editUrl = `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
+    editUrl = `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
   }
   if (!editUrl && ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-    editUrl = `${origin}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
+    editUrl = `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
   }
   if (!editUrl && ctx.pageType === 'author' && ctx.authorId) {
-    editUrl = `${origin}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
+    editUrl = `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
   }
 
   // If sync didn't resolve, try the REST fallback via content script.
@@ -259,7 +267,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (editUrl) {
-    chrome.tabs.update(tab.id, { url: editUrl });
+    // Await + guard: the active tab can close or navigate between resolving
+    // the edit URL (which may involve an async REST round-trip above) and this
+    // navigation. A fire-and-forget update against a gone tab surfaces an
+    // "Unchecked runtime.lastError: No tab with id" in the service worker.
+    try {
+      await chrome.tabs.update(tab.id, { url: editUrl });
+    } catch (_) { /* tab closed before we could navigate it */ }
   }
 });
 
