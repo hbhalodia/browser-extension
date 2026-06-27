@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '@wordpress/ui';
 import { copy, external, check } from '@wordpress/icons';
-import { copyToClipboard } from '../lib/actions';
+import { copyToClipboard, isNewTabIntent } from '../lib/actions';
 
 /**
  * Card-style action row: a bordered container with a primary button (icon +
@@ -31,6 +31,23 @@ export function ActionRow({
 		}
 	};
 
+	// Route Cmd/Ctrl/middle-clicks to the row's new-tab target so the popup
+	// honors the same "open in a new tab" gesture as a real link (#29). Plain
+	// clicks and keyboard activation (Enter/Space, which carry no modifier and
+	// button 0) fall through to the primary action. Rows without a new-tab
+	// target treat the gesture as inert rather than firing a side effect.
+	const handleMainActivate = (event) => {
+		if (isNewTabIntent(event)) {
+			event.preventDefault();
+			if (onNewTab) onNewTab();
+			return;
+		}
+		// onAuxClick also fires for the right mouse button; only a primary
+		// activation should run the action.
+		if (event.type === 'auxclick') return;
+		onClick?.(event);
+	};
+
 	const showHint = !loading && hint;
 	const hintContent = loading ? <span className="wpd-card__hint">…</span> : null;
 
@@ -40,7 +57,8 @@ export function ActionRow({
 				type="button"
 				className="wpd-card__main"
 				disabled={disabled || loading}
-				onClick={onClick}
+				onClick={handleMainActivate}
+				onAuxClick={onNewTab ? handleMainActivate : undefined}
 			>
 				{icon && (
 					<span className="wpd-card__icon" aria-hidden="true">
