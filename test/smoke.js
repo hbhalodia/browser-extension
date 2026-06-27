@@ -766,7 +766,18 @@ async function main() {
     // Single post — requires the edit_posts family.
     const postCtx = { pageType: 'single', postType: 'post' };
     assert(canEditCurrent(postCtx, subscriber) === false, 'subscriber cannot edit a post');
-    assert(canEditCurrent(postCtx, contributor) === true, 'contributor can edit a post');
+    assert(canEditCurrent(postCtx, contributor) === true, 'contributor can edit a post (no bar to read → caps fallback)');
+
+    // Per-object beats general caps: the same contributor on a published post
+    // they don't own (admin bar rendered, no Edit link) is gated even though
+    // their edit_posts cap is set — WP already ran current_user_can for the bar.
+    assert(
+      canEditCurrent(
+        { pageType: 'single', postType: 'post', isLoggedIn: true, hasAdminBar: true },
+        contributor,
+      ) === false,
+      'contributor on a non-editable single post (bar shown, no edit link) → disabled despite caps',
+    );
 
     // Author archive — admin-only (edit_users).
     const authorCtx = { pageType: 'author', authorId: 7 };
