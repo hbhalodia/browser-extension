@@ -713,6 +713,61 @@ async function main() {
       'plain logged-in user (no network admin menu) is not flagged as super admin');
   }
 
+  // --- 22. Subdirectory install — base URL derivation (issue #33) -------
+  {
+    console.log('\n[22] Subdirectory install base URL + admin link resolution');
+
+    // deriveBaseUrl across the URL shapes WordPress emits.
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+    const derive = ctx.WPDetect.deriveBaseUrl;
+
+    assert(
+      derive('https://example.com', 'https://example.com/wordpress/wp-json/')
+        === 'https://example.com/wordpress',
+      'pretty permalinks: /wordpress/wp-json/ → /wordpress base');
+    assert(
+      derive('https://example.com', 'https://example.com/wordpress/?rest_route=/')
+        === 'https://example.com/wordpress',
+      'plain permalinks: /wordpress/?rest_route=/ → /wordpress base');
+    assert(
+      derive('https://example.com', 'https://example.com/wp-json/')
+        === 'https://example.com',
+      'root install: /wp-json/ → bare origin');
+    assert(
+      derive('https://example.com', 'https://example.com/?rest_route=/')
+        === 'https://example.com',
+      'root install, plain permalinks → bare origin');
+    assert(
+      derive('https://example.com', 'https://attacker.example/wp-json/')
+        === 'https://example.com',
+      'off-origin REST root ignored → falls back to origin');
+    assert(
+      derive('https://example.com', null) === 'https://example.com',
+      'missing REST root → falls back to origin');
+
+    // End-to-end: a subdir install's detection context carries the base,
+    // and the sync edit-URL resolver builds links under it.
+    const dom2 = new JSDOM(`
+      <html><head>
+        <link rel="https://api.w.org/" href="https://example.com/wordpress/wp-json/">
+      </head><body class="single single-post postid-55 logged-in admin-bar"></body></html>
+    `, { url: 'https://example.com/wordpress/hello-world/' });
+    const ctx2 = loadModules(dom2);
+    const det2 = ctx2.WPDetect.detectWordPress(ctx2.document, { origin: 'https://example.com' });
+    assert(det2.context.baseUrl === 'https://example.com/wordpress',
+      `context.baseUrl carries the subdirectory (got ${det2.context.baseUrl})`);
+    const editUrl = ctx2.WPRest.resolveEditUrlSync(det2.context, 'https://example.com');
+    assert(editUrl === 'https://example.com/wordpress/wp-admin/post.php?post=55&action=edit',
+      `sync edit URL is subdirectory-aware: ${editUrl}`);
+
+    // Same-origin admin guard accepts /wp-admin/ under a subdirectory.
+    assert(
+      ctx2.WPRest.isSameOriginAdminUrl(
+        'https://example.com/wordpress/wp-admin/post-new.php', 'https://example.com') === true,
+      'isSameOriginAdminUrl accepts subdirectory /wp-admin/');
+  }
+
   // --- 12. Not a WordPress site -----------------------------------------
   {
     console.log('\n[12] Non-WordPress page');

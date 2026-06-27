@@ -10,6 +10,7 @@ export function Header({
 	wpVersion = null,
 	loggedIn = false,
 	origin = null,
+	baseUrl = null,
 	url = null,
 	updateCount = null,
 	commentCount = null,
@@ -24,6 +25,8 @@ export function Header({
 }) {
 	const hasStatus = (updateCount && updateCount > 0) || (commentCount && commentCount > 0);
 	const showMeta = host || wpVersion;
+	// Carries any subdirectory prefix for synthesized admin links (#33).
+	const base = baseUrl || origin;
 	return (
 		<header className="wpd-header">
 			<div className="wpd-header__top">
@@ -45,6 +48,7 @@ export function Header({
 						avatarUrl={userAvatarUrl}
 						displayName={userDisplayName}
 						origin={origin}
+						baseUrl={base}
 						url={url}
 						logoutUrl={logoutUrl}
 						editProfileUrl={userEditProfileHref}
@@ -66,7 +70,7 @@ export function Header({
 							icon={update}
 							label={`${updateCount} ${updateCount === 1 ? 'update' : 'updates'}`}
 							intent="medium"
-							onClick={() => onOpen?.(`${origin}/wp-admin/update-core.php`)}
+							onClick={() => onOpen?.(`${base}/wp-admin/update-core.php`)}
 						/>
 					)}
 					{commentCount > 0 && (
@@ -75,7 +79,7 @@ export function Header({
 							label={`${commentCount} pending ${commentCount === 1 ? 'comment' : 'comments'}`}
 							intent="informational"
 							onClick={() =>
-								onOpen?.(`${origin}/wp-admin/edit-comments.php?comment_status=moderated`)
+								onOpen?.(`${base}/wp-admin/edit-comments.php?comment_status=moderated`)
 							}
 						/>
 					)}

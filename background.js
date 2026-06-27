@@ -234,6 +234,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!ctx.isLoggedIn) return;
 
   const origin = result.origin;
+  // Path-aware base so synthesized admin URLs respect a subdirectory
+  // install (issue #33); falls back to the origin for root installs.
+  const base = ctx.baseUrl || origin;
 
   // Try sync resolution first (covers most cases).
   // resolveEditUrlSync isn't available here (it's in lib/rest.js, loaded
@@ -246,13 +249,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (!editUrl && ctx.postId && ctx.pageType === 'single') {
-    editUrl = `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
+    editUrl = `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
   }
   if (!editUrl && ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-    editUrl = `${origin}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
+    editUrl = `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
   }
   if (!editUrl && ctx.pageType === 'author' && ctx.authorId) {
-    editUrl = `${origin}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
+    editUrl = `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
   }
 
   // If sync didn't resolve, try the REST fallback via content script.
