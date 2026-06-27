@@ -184,6 +184,15 @@ async function handleDetection(msg, sender) {
 
 // --- Toolbar icon + title -------------------------------------------------
 
+// chrome.action.setIcon resolves its promise even when the target tab has
+// closed or navigated away — it reports the failure as an unchecked
+// chrome.runtime.lastError instead, so an awaited try/catch never catches it
+// and it surfaces a red "Errors" badge on the extension card. (setTitle does
+// reject and could be awaited, but both use the callback form so each consumes
+// its own lastError.) updateToolbar runs on every tabs.onUpdated tick, exactly
+// when a tab can vanish mid-navigation; a missing tab here is expected.
+const ignoreLastError = () => void chrome.runtime.lastError;
+
 async function updateToolbar(tabId, isWordPress, context) {
   // Three states: not WP (gray + slash), WP but not logged in (gray),
   // WP + logged in (blue). The cache doesn't carry isLoggedIn so on a
@@ -192,22 +201,18 @@ async function updateToolbar(tabId, isWordPress, context) {
   const variant = !isWordPress ? '-inactive'
     : context?.isLoggedIn ? '-active'
     : '';
-  try {
-    await chrome.action.setIcon({
-      tabId,
-      path: {
-        16: `icons/icon-16${variant}.png`,
-        32: `icons/icon-32${variant}.png`,
-      },
-    });
-  } catch (_) { /* icons not shipped yet */ }
+  chrome.action.setIcon({
+    tabId,
+    path: {
+      16: `icons/icon-16${variant}.png`,
+      32: `icons/icon-32${variant}.png`,
+    },
+  }, ignoreLastError);
 
   const title = isWordPress
     ? `WordPress detected${context?.isLoggedIn ? ' — logged in' : ''}`
     : 'WordPress Browser Extension';
-  try {
-    await chrome.action.setTitle({ tabId, title });
-  } catch (_) { /* tab may have closed */ }
+  chrome.action.setTitle({ tabId, title }, ignoreLastError);
 }
 
 // --- Keyboard shortcut: edit this page ------------------------------------
@@ -262,7 +267,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (editUrl) {
-    chrome.tabs.update(tab.id, { url: editUrl });
+    // Await + guard: the active tab can close or navigate between resolving
+    // the edit URL (which may involve an async REST round-trip above) and this
+    // navigation. A fire-and-forget update against a gone tab surfaces an
+    // "Unchecked runtime.lastError: No tab with id" in the service worker.
+    try {
+      await chrome.tabs.update(tab.id, { url: editUrl });
+    } catch (_) { /* tab closed before we could navigate it */ }
   }
 });
 

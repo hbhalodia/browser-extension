@@ -14,6 +14,7 @@ import { DevTools } from './DevTools';
 import { NewContent } from './NewContent';
 import { SiteInfoPanel } from './SiteInfoPanel';
 import { usePrefs } from '../hooks/usePrefs';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import { runAction, applyAdminBarPref, requestRestEditUrl } from '../lib/actions';
 import { editLabel, editDisabledLabel, postTypeLabel } from '../lib/labels';
 
@@ -30,6 +31,11 @@ export function DetectedView({ result, host }) {
 	const hostname = useMemo(() => new URL(origin).hostname, [origin]);
 	const isWpAdmin = useMemo(() => /\/wp-admin(\/|$)/.test(new URL(url).pathname), [url]);
 	const [prefs] = usePrefs(origin);
+	// Fetched once here and shared with the header's role label and the
+	// capability gates below, so the popup makes a single users/me request.
+	// baseUrl is threaded so the nonce-fetch fallback respects a subdirectory
+	// install (issue #33).
+	const user = useCurrentUser(isLoggedIn, baseUrl);
 
 	const openInNewTab = (url) => {
 		chrome.tabs.create({ url });
@@ -60,14 +66,15 @@ export function DetectedView({ result, host }) {
 				userEditProfileHref={ctx.userEditProfileHref || null}
 				isSuperAdmin={!!ctx.isSuperAdmin}
 				logoutUrl={ctx.adminBarLogoutHref || null}
+				user={user}
 				onOpen={openInNewTab}
 			/>
 			<Section>
 				{isLoggedIn ? (
 					isWpAdmin ? (
-						<WpAdminActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} />
+						<WpAdminActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} user={user} />
 					) : (
-						<FrontendLoggedInActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} />
+						<FrontendLoggedInActions ctx={ctx} origin={origin} baseUrl={baseUrl} url={url} user={user} />
 					)
 				) : (
 					<LoggedOutActions origin={origin} baseUrl={baseUrl} url={url} />
@@ -94,7 +101,23 @@ function Section({ children }) {
 	);
 }
 
-function WpAdminActions({ ctx, origin, baseUrl, url }) {
+// lib/rest.js is loaded as a classic script in popup.html, exposing its API
+// on window.WPRest. Helpers return null ("unknown") when it isn't available.
+function wpRest() {
+	return typeof window !== 'undefined' ? window.WPRest : null;
+}
+
+// Disable "WordPress Admin" only when we definitively know the user can't
+// reach wp-admin (false). null/true keep it enabled.
+function useAdminEnabled(ctx, user) {
+	return useMemo(() => {
+		const rest = wpRest();
+		return rest ? rest.canAccessAdmin(ctx, user) !== false : true;
+	}, [ctx, user]);
+}
+
+function WpAdminActions({ ctx, origin, baseUrl, url, user }) {
+	const adminEnabled = useAdminEnabled(ctx, user);
 	// If the admin bar has a view/preview link, the user is on an edit screen.
 	// WordPress provides the correct URL — including the preview nonce for
 	// drafts — so we use it directly.
@@ -132,6 +155,7 @@ function WpAdminActions({ ctx, origin, baseUrl, url }) {
 			<ActionRow
 				icon={dashboard}
 				label="WordPress Admin"
+				disabled={!adminEnabled}
 				onClick={() => runAction('admin', { origin, baseUrl, url })}
 				onNewTab={() => runAction('admin', { origin, baseUrl, url, newTab: true })}
 			/>
@@ -139,9 +163,16 @@ function WpAdminActions({ ctx, origin, baseUrl, url }) {
 	);
 }
 
-function FrontendLoggedInActions({ ctx, origin, baseUrl, url }) {
+function FrontendLoggedInActions({ ctx, origin, baseUrl, url, user }) {
 	const [prefs, savePref] = usePrefs(origin);
 	const { editUrl, resolving } = useEditUrlResolution(ctx, origin);
+	const adminEnabled = useAdminEnabled(ctx, user);
+	// false = the user definitively can't edit this object; null/true (unknown
+	// or allowed) leave the action enabled so a missing nonce never hides it.
+	const editCapAllowed = useMemo(() => {
+		const rest = wpRest();
+		return rest ? rest.canEditCurrent(ctx, user) !== false : true;
+	}, [ctx, user]);
 
 	const isMac = typeof navigator !== 'undefined' && navigator.platform?.startsWith('Mac');
 	const shortcutHint = isMac ? 'Alt⇧E' : 'Alt+Shift+E';
@@ -152,7 +183,7 @@ function FrontendLoggedInActions({ ctx, origin, baseUrl, url }) {
 		await applyAdminBarPref(hidden);
 	};
 
-	const editActionEnabled = !!editUrl;
+	const editActionEnabled = !!editUrl && editCapAllowed;
 	const editActionLabel = editActionEnabled
 		? editLabel(ctx, true)
 		: resolving
@@ -174,6 +205,7 @@ function FrontendLoggedInActions({ ctx, origin, baseUrl, url }) {
 			<ActionRow
 				icon={dashboard}
 				label="WordPress Admin"
+				disabled={!adminEnabled}
 				onClick={() => runAction('admin', { origin, baseUrl, url })}
 				onNewTab={() => runAction('admin', { origin, baseUrl, url, newTab: true })}
 			/>

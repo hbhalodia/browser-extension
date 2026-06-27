@@ -20,6 +20,7 @@ export function Header({
 	userEditProfileHref = null,
 	isSuperAdmin = false,
 	logoutUrl = null,
+	user = null,
 	onOpen,
 }) {
 	const hasStatus = (updateCount && updateCount > 0) || (commentCount && commentCount > 0);
@@ -52,6 +53,7 @@ export function Header({
 						logoutUrl={logoutUrl}
 						editProfileUrl={userEditProfileHref}
 						isSuperAdmin={isSuperAdmin}
+						user={user}
 					/>
 				)}
 			</div>

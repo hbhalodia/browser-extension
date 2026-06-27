@@ -233,6 +233,13 @@ export async function requestSiteInfo(baseUrl = null) {
 export async function requestCurrentUser(baseUrl = null) {
 	try {
 		const { tab, nonce } = await resolveRestNonce(baseUrl);
+		// users/me?context=edit needs a valid REST nonce — cookie auth without
+		// one is always rejected with a 401. Skip the doomed request when no
+		// nonce could be resolved (common on logged-in frontends that don't
+		// enqueue wp-api-fetch, e.g. wordpress.org). The popup's capability
+		// gates are DOM-first and don't depend on this; the fetch only enriches
+		// the role label / caps when a nonce is actually available.
+		if (!nonce) return null;
 		const res = await chrome.tabs.sendMessage(tab.id, { type: 'GET_CURRENT_USER', nonce });
 		return res?.user || null;
 	} catch (_) {

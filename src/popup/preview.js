@@ -15,6 +15,10 @@ window.WPRest = {
 	resolveEditUrlSync: (ctx, origin) =>
 		ctx.postId ? `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit` : null,
 	canResolveViaRest: (ctx) => !!ctx.postSlug,
+	// Capability gates default to "allowed" in the preview — the canned user
+	// above is a full administrator, so the real lib logic would agree.
+	canAccessAdmin: () => true,
+	canEditCurrent: () => true,
 };
 window.WPHost = {
 	HOST_NAMES: { wpengine: 'WP Engine', pantheon: 'Pantheon' },
@@ -28,7 +32,25 @@ window.chrome = {
 		query: async () => [{ id: 1, url: 'https://example.test/' }],
 		sendMessage: async (_tabId, msg) => {
 			if (msg?.type === 'GET_CURRENT_USER') {
-				return { user: { id: 1, name: 'Jane Doe', roles: ['administrator'] } };
+				return {
+					user: {
+						id: 1,
+						name: 'Jane Doe',
+						roles: ['administrator'],
+						// allcaps map — gives the capability gates (Edit /
+						// WordPress Admin) a representative capable user.
+						capabilities: {
+							read: true,
+							edit_posts: true,
+							edit_pages: true,
+							edit_others_posts: true,
+							manage_categories: true,
+							edit_users: true,
+							manage_options: true,
+							administrator: true,
+						},
+					},
+				};
 			}
 			return {};
 		},

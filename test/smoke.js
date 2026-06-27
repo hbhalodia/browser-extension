@@ -778,6 +778,97 @@ async function main() {
     assert(det.confidence === 0, 'confidence=0');
   }
 
+  // --- 13. Capability gating for Edit / WordPress Admin -----------------
+  {
+    console.log('\n[13] WPRest.canAccessAdmin / canEditCurrent capability gates');
+    const dom = new JSDOM('<html><body></body></html>');
+    const ctx = loadModules(dom);
+    const { canAccessAdmin, canEditCurrent } = ctx.WPRest;
+
+    const subscriber = { capabilities: { read: true, subscriber: true } };
+    const contributor = { capabilities: { read: true, edit_posts: true } };
+    const editor = {
+      capabilities: {
+        read: true, edit_posts: true, edit_pages: true,
+        edit_others_posts: true, manage_categories: true,
+      },
+    };
+    const admin = { capabilities: { ...editor.capabilities, edit_users: true } };
+
+    // --- canAccessAdmin: caps path — gates on meaningful (editing) access,
+    //     not bare `read`, so a subscriber-tier account is disabled.
+    const noBar = { isLoggedIn: true, hasAdminBar: true };
+    assert(canAccessAdmin(noBar, subscriber) === false, 'subscriber (read only) → admin disabled');
+    assert(canAccessAdmin(noBar, contributor) === true, 'contributor → admin enabled');
+    assert(canAccessAdmin(noBar, editor) === true, 'editor → admin enabled');
+    assert(canAccessAdmin({}, null) === null, 'no caps, no admin bar → null (do not gate)');
+    assert(canAccessAdmin({}, {}) === null, 'caps map absent + no DOM signal → null');
+
+    // --- canAccessAdmin: DOM-first path (no caps / REST 401). The admin bar
+    //     WordPress rendered is the signal.
+    const barWithNew = { isLoggedIn: true, hasAdminBar: true, newContentItems: [{ id: 'post' }] };
+    const barBare = { isLoggedIn: true, hasAdminBar: true, newContentItems: [] };
+    assert(canAccessAdmin(barWithNew, null) === true, 'no caps but "+ New" menu → admin enabled');
+    assert(canAccessAdmin(barBare, null) === false, 'no caps, bare admin bar → admin disabled');
+
+    // --- canEditCurrent: caps path -------------------------------------
+    // Single page — requires edit_pages.
+    const pageCtx = { pageType: 'single', postType: 'page' };
+    assert(canEditCurrent(pageCtx, subscriber) === false, 'subscriber cannot edit a page');
+    assert(canEditCurrent(pageCtx, contributor) === false, 'contributor cannot edit a page');
+    assert(canEditCurrent(pageCtx, editor) === true, 'editor can edit a page');
+
+    // Single post — requires the edit_posts family.
+    const postCtx = { pageType: 'single', postType: 'post' };
+    assert(canEditCurrent(postCtx, subscriber) === false, 'subscriber cannot edit a post');
+    assert(canEditCurrent(postCtx, contributor) === true, 'contributor can edit a post (no bar to read → caps fallback)');
+
+    // Per-object beats general caps: the same contributor on a published post
+    // they don't own (admin bar rendered, no Edit link) is gated even though
+    // their edit_posts cap is set — WP already ran current_user_can for the bar.
+    assert(
+      canEditCurrent(
+        { pageType: 'single', postType: 'post', isLoggedIn: true, hasAdminBar: true },
+        contributor,
+      ) === false,
+      'contributor on a non-editable single post (bar shown, no edit link) → disabled despite caps',
+    );
+
+    // Author archive — admin-only (edit_users).
+    const authorCtx = { pageType: 'author', authorId: 7 };
+    assert(canEditCurrent(authorCtx, editor) === false, 'editor cannot edit a user');
+    assert(canEditCurrent(authorCtx, admin) === true, 'admin can edit a user');
+
+    // Term archive — requires manage_categories.
+    const termCtx = { pageType: 'term', taxonomy: 'category', termId: 3 };
+    assert(canEditCurrent(termCtx, contributor) === false, 'contributor cannot edit a term');
+    assert(canEditCurrent(termCtx, editor) === true, 'editor can edit a term');
+
+    // Authoritative admin-bar Edit link short-circuits the heuristic.
+    assert(
+      canEditCurrent({ ...pageCtx, adminBarEditHref: 'https://x/wp-admin/post.php?post=1&action=edit' }, subscriber) === true,
+      'admin-bar Edit link is trusted even when caps would gate',
+    );
+
+    // --- canEditCurrent: DOM-first path (no caps / REST 401). This is the
+    //     wordpress.org case: logged in, admin bar shown, no edit link.
+    assert(
+      canEditCurrent({ pageType: 'single', postType: 'post', postId: 28583, isLoggedIn: true, hasAdminBar: true }, null) === false,
+      'no caps + admin bar present + no edit link on a single post → edit disabled',
+    );
+    assert(
+      canEditCurrent({ pageType: 'single', postType: 'post', isLoggedIn: true, hasAdminBar: false }, null) === null,
+      'admin bar hidden → unknown (do not gate)',
+    );
+    assert(
+      canEditCurrent({ pageType: 'term', taxonomy: 'category', isLoggedIn: true, hasAdminBar: true }, null) === null,
+      'no caps on a term archive stays unknown (bar edit link is unreliable there)',
+    );
+
+    // Unsupported page type → null (caller does not gate).
+    assert(canEditCurrent({ pageType: 'archive' }, editor) === null, 'archive has no edit decision');
+  }
+
   console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' failure(s).'}`);
   process.exit(failures === 0 ? 0 : 1);
 }
