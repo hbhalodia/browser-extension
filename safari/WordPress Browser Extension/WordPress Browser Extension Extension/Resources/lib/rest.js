@@ -200,6 +200,124 @@
   }
 
   /**
+   * Capability gating for the popup's Edit / WordPress Admin actions.
+   *
+   * DOM-first by design. The most reliable capability signal is the admin bar
+   * WordPress already rendered for the current user — it reflects their real
+   * permissions and is present synchronously, with no REST call. We lean on
+   * it first because the obvious alternative — /wp/v2/users/me?context=edit —
+   * needs a REST nonce that logged-in *frontend* pages frequently don't emit
+   * (e.g. wordpress.org), so that fetch 401s and yields nothing to gate on.
+   * The fetched capabilities map is used only as an enhancement when present.
+   *
+   * Every decision is tri-state:
+   *   true  — enable the action
+   *   false — definitively gate it (user can't use it)
+   *   null  — unknown; caller should not gate, so we never hide a valid
+   *           action when we simply lack a signal.
+   */
+  function capsOf(user) {
+    return user && typeof user.capabilities === 'object' && user.capabilities
+      ? user.capabilities
+      : null;
+  }
+
+  /**
+   * Whether the admin bar WordPress rendered for this user shows any
+   * editing-level access: an Edit link for the current object, or a "+ New"
+   * menu (each sub-item is a content type the user can create). Subscribers
+   * get neither; contributors and up get at least one. A synchronous,
+   * REST-free proxy for "this account is more than a bare subscriber".
+   */
+  function adminBarShowsEditingAccess(ctx) {
+    if (!ctx) return false;
+    return !!ctx.adminBarEditHref
+      || (Array.isArray(ctx.newContentItems) && ctx.newContentItems.length > 0);
+  }
+
+  /**
+   * Whether to enable "WordPress Admin". Gates on *meaningful* dashboard
+   * access — the ability to create/edit/manage something — rather than the
+   * bare `read` cap, so a subscriber-tier account (which only bounces to its
+   * own profile) doesn't get an active link. Prefers the rendered admin bar;
+   * falls back to the capabilities map when DOM signals are absent.
+   */
+  function canAccessAdmin(ctx, user) {
+    const caps = capsOf(user);
+    if (caps) {
+      return adminBarShowsEditingAccess(ctx)
+        || !!(caps.edit_posts || caps.edit_pages || caps.upload_files
+          || caps.publish_posts || caps.edit_others_posts || caps.moderate_comments
+          || caps.manage_categories || caps.manage_options || caps.edit_theme_options);
+    }
+    // No capabilities map (nonce/REST unavailable) — read it off the admin bar
+    // WordPress rendered. Only decisive when the bar is actually present.
+    if (ctx && ctx.isLoggedIn && ctx.hasAdminBar) {
+      return adminBarShowsEditingAccess(ctx);
+    }
+    return null;
+  }
+
+  /**
+   * Whether to enable the Edit action for the current page.
+   *
+   * The admin-bar Edit link is authoritative — WordPress only renders it when
+   * `current_user_can('edit_post', $id)` for the resolved object — so its
+   * presence enables the action outright. Its *absence*, when WP rendered the
+   * admin bar for a logged-in user on a singular object, is equally telling:
+   * WP decided this user can't edit it, so we don't synthesize a dead link.
+   * The capabilities map is a fallback, used only when no admin bar is present
+   * to read (the allcaps map is general, not per-object, so the rendered bar
+   * is preferred whenever it's available).
+   */
+  function canEditCurrent(ctx, user) {
+    if (!ctx) return null;
+    if (ctx.adminBarEditHref) return true;
+
+    // The admin bar is per-object authoritative for a singular object: when WP
+    // rendered the bar for a logged-in user but omitted the Edit link,
+    // current_user_can('edit_post', $id) came back false, so they can't edit
+    // THIS object — even when their general caps would suggest otherwise (a
+    // contributor's edit_posts covers only their own drafts, not someone
+    // else's published post; an author can't edit others' posts). Trust the
+    // bar over allcaps. Checked before the caps fallback so we never re-enable
+    // a dead Edit link for those mid-tier roles. Scoped to `single` because
+    // core reliably renders the bar's Edit link for editable posts/pages/CPTs;
+    // term/author archives are less consistent, so those fall through to caps.
+    if (ctx.isLoggedIn && ctx.hasAdminBar && ctx.pageType === 'single') {
+      return false;
+    }
+
+    const caps = capsOf(user);
+    if (caps) {
+      switch (ctx.pageType) {
+        case 'single':
+          // Reached only when no admin bar was present to read (e.g. the user
+          // hid it). Pages need edit_pages; posts, attachments, and most CPTs
+          // map to the edit_posts family (the default capability_type). We
+          // can't know an arbitrary CPT's custom caps from allcaps, so
+          // edit_posts || edit_pages is the practical floor — it gates
+          // subscribers (who have neither) while leaving capable roles enabled.
+          if (ctx.postType === 'page') return !!caps.edit_pages;
+          return !!(caps.edit_posts || caps.edit_pages);
+        case 'term':
+          // term.php editing requires manage_categories for built-in
+          // taxonomies; custom taxonomies use manage_<tax>_terms, but
+          // manage_categories is a reliable proxy across standard roles.
+          return !!caps.manage_categories;
+        case 'author':
+          // user-edit.php requires edit_users (administrator-only).
+          return !!caps.edit_users;
+        default:
+          // archive/home/search/404 — edit isn't offered for these anyway.
+          return null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Public site-info endpoint (/wp-json/). Returns name, description, url,
    * home, gmt_offset, timezone_string, namespaces, site_logo, site_icon_url.
    * Works without authentication — most useful fact is `namespaces`, which
@@ -341,6 +459,8 @@
     resolveEditUrlSync,
     resolveEditUrlAsync,
     canResolveViaRest,
+    canAccessAdmin,
+    canEditCurrent,
     fetchSiteInfo,
     fetchActiveTheme,
     fetchPluginsDetail,
