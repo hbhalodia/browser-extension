@@ -36,16 +36,18 @@ export function MySites() {
 			</Collapsible.Trigger>
 			<Collapsible.Panel className="wpd-siteinfo__panel">
 				<div className="wpd-siteinfo__body wpd-mysites__body">
-					{sites.map((site) => (
-						<MySiteRow
-							key={site.origin}
-							site={site}
-							label={displayName ? displayName(site) : site.origin}
-							editing={editing}
-							onRemove={remove}
-							onRename={rename}
-						/>
-					))}
+					<div className="wpd-mysites__list">
+						{sites.map((site) => (
+							<MySiteRow
+								key={site.origin}
+								site={site}
+								label={displayName ? displayName(site) : site.origin}
+								editing={editing}
+								onRemove={remove}
+								onRename={rename}
+							/>
+						))}
+					</div>
 					<div className="wpd-mysites__footer">
 						<button
 							type="button"

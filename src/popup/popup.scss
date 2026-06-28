@@ -1043,7 +1043,30 @@ body {
 }
 
 /* My Sites launcher — reuses the .wpd-siteinfo accordion shell and the
- * .wpd-card-row primitive; these rules cover only the edit-mode controls. */
+ * .wpd-card-row primitive. Rows render as one flush, table-like stack (a
+ * single bordered container with hairline row separators) rather than the
+ * spaced, individually-rounded cards used for the current-site actions. */
+.wpd-mysites__body {
+	gap: 10px;
+}
+
+.wpd-mysites__list {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--wpd-border);
+	border-radius: var(--wpd-radius);
+	overflow: hidden;
+
+	.wpd-card-row {
+		border: 0;
+		border-radius: 0;
+		border-top: 1px solid var(--wpd-border);
+	}
+	.wpd-card-row:first-child {
+		border-top: 0;
+	}
+}
+
 .wpd-mysites__footer {
 	display: flex;
 	justify-content: flex-end;
