@@ -169,6 +169,125 @@
     return null;
   }
 
+  // --- Template-backed views (block themes) -------------------------------
+
+  /**
+   * Page types that are rendered from a block-theme template/template-part
+   * rather than a single editable post: the blog index and archives. These
+   * have no post.php / term.php destination — they resolve to a site-editor
+   * deep link instead. Category/tag (`pageType === 'term'`) and author
+   * archives are intentionally excluded: they have their own editable
+   * record (the term / user) and resolve via the sync/REST paths above.
+   */
+  function isTemplateBackedPage(ctx) {
+    return ctx.pageType === 'home' || ctx.pageType === 'archive';
+  }
+
+  /**
+   * Ordered template-slug candidates for a template-backed view, following
+   * WordPress's template hierarchy from most to least specific. The caller
+   * picks the first candidate that the active theme actually registers.
+   *
+   *   home    → home, index            (blog posts index)
+   *   archive → archive-{postType}?, archive, index
+   *
+   * A static front page or posts page is a real Page (pageType 'single')
+   * and never reaches here — it resolves to post.php upstream.
+   */
+  function templateCandidates(ctx) {
+    if (ctx.pageType === 'home') {
+      return ['home', 'index'];
+    }
+    if (ctx.pageType === 'archive') {
+      const candidates = [];
+      if (ctx.postType) candidates.push(`archive-${ctx.postType}`);
+      candidates.push('archive', 'index');
+      return candidates;
+    }
+    return [];
+  }
+
+  /**
+   * Given the registered-template list from /wp/v2/templates, returns the
+   * most specific template matching the current view, or null. Each template
+   * object carries an `id` of the form `{stylesheet}//{slug}`, which is
+   * exactly what the site editor's `postId` expects.
+   */
+  function pickTemplate(ctx, templates) {
+    if (!Array.isArray(templates)) return null;
+    const bySlug = new Map();
+    for (const t of templates) {
+      if (t && typeof t.slug === 'string' && t.id) bySlug.set(t.slug, t);
+    }
+    for (const slug of templateCandidates(ctx)) {
+      if (bySlug.has(slug)) return bySlug.get(slug);
+    }
+    return null;
+  }
+
+  /**
+   * Builds the site-editor deep link for a resolved template. `canvas=edit`
+   * opens straight into edit mode rather than the template's preview screen.
+   * The template `id` is already `{stylesheet}//{slug}`; encode it so the
+   * `//` survives as the postId value.
+   */
+  function buildSiteEditorUrl(origin, template) {
+    if (!template || !template.id) return null;
+    const postId = encodeURIComponent(template.id);
+    return `${origin}/wp-admin/site-editor.php?postType=wp_template&postId=${postId}&canvas=edit`;
+  }
+
+  /**
+   * Lists the active theme's registered templates. Private endpoint —
+   * requires edit_theme_options (admins) and a valid X-WP-Nonce. Returns
+   * an array (possibly empty) or null on failure / insufficient caps.
+   */
+  async function fetchTemplates({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+    const root = normalizeRoot(restApiRoot, origin);
+    try {
+      const res = await fetchImpl(`${root}wp/v2/templates`, {
+        credentials: 'include',
+        headers: nonce ? { 'X-WP-Nonce': nonce } : undefined,
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data) ? data : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /**
+   * Resolves a template-backed view to a site-editor edit URL. Returns
+   * `{ url, isBlockTheme }` so the popup can label the disabled state
+   * honestly:
+   *
+   *   - isBlockTheme false → classic theme; templates are PHP files, no URL.
+   *   - isBlockTheme true, url null → block theme but no matching template.
+   *   - isBlockTheme null → couldn't determine (not an admin, REST off).
+   *
+   * Reads the active theme's `is_block_theme` flag first (cheap gate) and
+   * only lists templates when it's a block theme.
+   */
+  async function resolveTemplateEditUrlAsync({ ctx, origin, nonce, fetchImpl = fetch }) {
+    if (!isTemplateBackedPage(ctx)) return { url: null, isBlockTheme: null };
+
+    const theme = await fetchActiveTheme({
+      restApiRoot: ctx.restApiRoot, origin, nonce, fetchImpl,
+    });
+    const isBlockTheme = theme ? !!theme.is_block_theme : null;
+    if (isBlockTheme !== true) return { url: null, isBlockTheme };
+
+    const templates = await fetchTemplates({
+      restApiRoot: ctx.restApiRoot, origin, nonce, fetchImpl,
+    });
+    // Build the site-editor link off the path-aware base so it's correct on
+    // subdirectory installs (#33); falls back to the origin for root installs.
+    const base = (ctx && ctx.baseUrl) || origin;
+    const url = buildSiteEditorUrl(base, pickTemplate(ctx, templates));
+    return { url: url || null, isBlockTheme: true };
+  }
+
   /**
    * Sync-only resolution — no network. Returns the best admin URL given
    * whatever IDs we already have in context, or null.
@@ -475,6 +594,12 @@
     canResolveViaRest,
     canAccessAdmin,
     canEditCurrent,
+    isTemplateBackedPage,
+    templateCandidates,
+    pickTemplate,
+    buildSiteEditorUrl,
+    fetchTemplates,
+    resolveTemplateEditUrlAsync,
     fetchSiteInfo,
     fetchActiveTheme,
     fetchPluginsDetail,

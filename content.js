@@ -242,6 +242,19 @@
       return true;
     }
 
+    if (msg.type === 'RESOLVE_TEMPLATE_EDIT_URL') {
+      // Template-backed views (blog index, archives) on block themes resolve
+      // to a site-editor deep link. Needs an authenticated REST round-trip
+      // (/themes + /templates are private), so the popup passes the nonce it
+      // already resolves for the site-info/user endpoints.
+      const nonce = msg.nonce || null;
+      globalThis.WPRest
+        .resolveTemplateEditUrlAsync({ ctx: detection.context, origin: location.origin, nonce })
+        .then((res) => sendResponse(res || { url: null, isBlockTheme: null }))
+        .catch(() => sendResponse({ url: null, isBlockTheme: null }));
+      return true;
+    }
+
     if (msg.type === 'GET_SITE_INFO') {
       // Runs from the page context, so cookies flow automatically. The popup
       // pre-reads window.wpApiSettings.nonce via chrome.scripting (MAIN world,

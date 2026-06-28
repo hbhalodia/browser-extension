@@ -415,5 +415,25 @@
   "host_local_dev": {
     "message": "Local Dev",
     "description": "Host badge label for a local development environment (the other host labels are brand names and are not translated)"
+  },
+  "edit_blog_template": {
+    "message": "Edit Blog Template",
+    "description": "Edit action label on the blog posts index (block theme) — opens the site editor"
+  },
+  "edit_archive_template": {
+    "message": "Edit Archive Template",
+    "description": "Edit action label on an archive view (block theme) — opens the site editor"
+  },
+  "edit_unavailable_classic": {
+    "message": "Editing Not Available (Classic Theme)",
+    "description": "Disabled edit label on a template-backed view when the theme is classic (templates are PHP files)"
+  },
+  "edit_template_not_found": {
+    "message": "Template Not Found",
+    "description": "Disabled edit label when the block theme has no template matching the current view"
+  },
+  "edit_unavailable": {
+    "message": "Editing Not Available",
+    "description": "Disabled edit label on a template-backed view when block-theme status can't be determined"
   }
 }

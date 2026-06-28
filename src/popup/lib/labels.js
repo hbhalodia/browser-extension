@@ -10,13 +10,29 @@ export function editLabel(ctx, editable) {
 		return chrome.i18n.getMessage('edit_term'); // "Edit Term"
 	}
 	if (ctx.pageType === 'author') return chrome.i18n.getMessage('edit_author'); // "Edit Author"
+	// Template-backed views (block themes) edit a site-editor template, not a
+	// post. Checked before `ctx.postType` so a post-type archive reads as a
+	// template edit rather than "Edit Book".
+	if (ctx.pageType === 'home') return chrome.i18n.getMessage('edit_blog_template'); // "Edit Blog Template"
+	if (ctx.pageType === 'archive') return chrome.i18n.getMessage('edit_archive_template'); // "Edit Archive Template"
 	if (ctx.postType) return chrome.i18n.getMessage('edit_post_type', [postTypeLabel(ctx.postType)]); // "Edit {Post|Page|…}"
 	return chrome.i18n.getMessage('edit_page_fallback'); // "Edit Page"
 }
 
-export function editDisabledLabel(ctx) {
-	if (ctx.pageType === 'archive') return chrome.i18n.getMessage('edit_archive_coming_soon'); // "Edit Archive (Coming Soon)"
-	if (ctx.pageType === 'home') return chrome.i18n.getMessage('edit_homepage_coming_soon'); // "Edit Homepage (Coming Soon)"
+/**
+ * Label for the disabled edit row. `info.isBlockTheme` (when known) lets the
+ * template-backed cases be honest about *why* editing is unavailable rather
+ * than dangling a "Coming Soon" promise:
+ *   - false → classic theme; its templates are PHP, not site-editor content.
+ *   - true  → block theme, but no matching template was found.
+ *   - null  → couldn't determine (not an admin, REST disabled).
+ */
+export function editDisabledLabel(ctx, info = {}) {
+	if (ctx.pageType === 'archive' || ctx.pageType === 'home') {
+		if (info.isBlockTheme === false) return chrome.i18n.getMessage('edit_unavailable_classic'); // "Editing Not Available (Classic Theme)"
+		if (info.isBlockTheme === true) return chrome.i18n.getMessage('edit_template_not_found'); // "Template Not Found"
+		return chrome.i18n.getMessage('edit_unavailable'); // "Editing Not Available"
+	}
 	if (ctx.pageType === 'term') return chrome.i18n.getMessage('edit_term_not_resolvable'); // "Edit Term (Not Resolvable)"
 	if (ctx.pageType === 'author') return chrome.i18n.getMessage('edit_author_not_resolvable'); // "Edit Author (Not Resolvable)"
 	if (ctx.pageType === 'search' || ctx.pageType === '404') return chrome.i18n.getMessage('nothing_to_edit'); // "Nothing to Edit"

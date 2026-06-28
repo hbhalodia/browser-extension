@@ -15,7 +15,7 @@ import { NewContent } from './NewContent';
 import { SiteInfoPanel } from './SiteInfoPanel';
 import { usePrefs } from '../hooks/usePrefs';
 import { useCurrentUser } from '../hooks/useCurrentUser';
-import { runAction, applyAdminBarPref, requestRestEditUrl } from '../lib/actions';
+import { runAction, applyAdminBarPref, requestRestEditUrl, requestTemplateEditUrl } from '../lib/actions';
 import { editLabel, editDisabledLabel, postTypeLabel } from '../lib/labels';
 
 export function DetectedView({ result, host }) {
@@ -165,7 +165,7 @@ function WpAdminActions({ ctx, origin, baseUrl, url, user }) {
 
 function FrontendLoggedInActions({ ctx, origin, baseUrl, url, user }) {
 	const [prefs, savePref] = usePrefs(origin);
-	const { editUrl, resolving } = useEditUrlResolution(ctx, origin);
+	const { editUrl, resolving, isBlockTheme } = useEditUrlResolution(ctx, origin);
 	const adminEnabled = useAdminEnabled(ctx, user);
 	// false = the user definitively can't edit this object; null/true (unknown
 	// or allowed) leave the action enabled so a missing nonce never hides it.
@@ -188,7 +188,7 @@ function FrontendLoggedInActions({ ctx, origin, baseUrl, url, user }) {
 		? editLabel(ctx, true)
 		: resolving
 			? editLabel(ctx, true)
-			: editDisabledLabel(ctx);
+			: editDisabledLabel(ctx, { isBlockTheme });
 
 	return (
 		<>
@@ -262,6 +262,12 @@ function AdminBarSection({ ctx, origin, baseUrl, prefs, onToggle }) {
  * Two-tier resolution: synchronous first (instant), then REST if the ctx has
  * slugs we can look up. While REST is in flight we expose `resolving: true`
  * so the UI can show a loading state.
+ *
+ * Three async shapes feed this:
+ *   - term/author slug → ID lookup (requestRestEditUrl)
+ *   - template-backed views (blog index, archives) → block-theme site-editor
+ *     deep link (requestTemplateEditUrl), which also reports `isBlockTheme`
+ *     so a disabled row can explain itself honestly.
  */
 function useEditUrlResolution(ctx, origin) {
 	const syncUrl = useMemo(() => {
@@ -274,26 +280,42 @@ function useEditUrlResolution(ctx, origin) {
 		return wpRest ? wpRest.canResolveViaRest(ctx) : false;
 	}, [ctx]);
 
+	const isTemplateBacked = useMemo(() => {
+		const wpRest = typeof window !== 'undefined' ? window.WPRest : null;
+		return wpRest ? wpRest.isTemplateBackedPage(ctx) : false;
+	}, [ctx]);
+
 	const [asyncUrl, setAsyncUrl] = useState(null);
 	const [asyncAttempted, setAsyncAttempted] = useState(false);
-	const needsAsync = !syncUrl && canResolveAsync;
+	const [isBlockTheme, setIsBlockTheme] = useState(null);
+
+	const needsTemplateAsync = !syncUrl && !canResolveAsync && isTemplateBacked;
+	const needsAsync = !syncUrl && (canResolveAsync || needsTemplateAsync);
 
 	useEffect(() => {
 		if (!needsAsync || asyncAttempted) return;
 		let cancelled = false;
 		(async () => {
-			const resolved = await requestRestEditUrl();
-			if (cancelled) return;
-			setAsyncUrl(resolved);
+			if (needsTemplateAsync) {
+				const { url, isBlockTheme: themeFlag } = await requestTemplateEditUrl(ctx.baseUrl || origin);
+				if (cancelled) return;
+				setAsyncUrl(url || null);
+				setIsBlockTheme(themeFlag ?? null);
+			} else {
+				const resolved = await requestRestEditUrl();
+				if (cancelled) return;
+				setAsyncUrl(resolved);
+			}
 			setAsyncAttempted(true);
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [needsAsync, asyncAttempted]);
+	}, [needsAsync, needsTemplateAsync, asyncAttempted]);
 
 	return {
 		editUrl: syncUrl || asyncUrl || null,
 		resolving: needsAsync && !asyncAttempted,
+		isBlockTheme,
 	};
 }

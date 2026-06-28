@@ -715,6 +715,158 @@ async function main() {
       'plain logged-in user (no network admin menu) is not flagged as super admin');
   }
 
+  // --- 22. Template-backed views — candidate slugs ----------------------
+  {
+    console.log('\n[24] templateCandidates — hierarchy per page type');
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+    const cand = ctx.WPRest.templateCandidates;
+
+    assert(JSON.stringify(cand({ pageType: 'home' })) === JSON.stringify(['home', 'index']),
+      'home → [home, index]');
+    assert(JSON.stringify(cand({ pageType: 'archive' })) === JSON.stringify(['archive', 'index']),
+      'bare archive → [archive, index]');
+    assert(JSON.stringify(cand({ pageType: 'archive', postType: 'book' }))
+      === JSON.stringify(['archive-book', 'archive', 'index']),
+      'post-type archive → [archive-book, archive, index]');
+    assert(cand({ pageType: 'term' }).length === 0,
+      'term page type yields no template candidates (handled by term.php)');
+    assert(cand({ pageType: 'single' }).length === 0, 'single yields none');
+
+    assert(ctx.WPRest.isTemplateBackedPage({ pageType: 'home' }) === true, 'home is template-backed');
+    assert(ctx.WPRest.isTemplateBackedPage({ pageType: 'archive' }) === true, 'archive is template-backed');
+    assert(ctx.WPRest.isTemplateBackedPage({ pageType: 'term' }) === false, 'term is NOT template-backed');
+  }
+
+  // --- 23. pickTemplate matches the most specific registered slug --------
+  {
+    console.log('\n[25] pickTemplate — most specific registered template wins');
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+    const pick = ctx.WPRest.pickTemplate;
+
+    const templates = [
+      { id: 'twentytwentyfour//index', slug: 'index' },
+      { id: 'twentytwentyfour//archive', slug: 'archive' },
+      { id: 'twentytwentyfour//home', slug: 'home' },
+    ];
+
+    assert(pick({ pageType: 'home' }, templates).slug === 'home',
+      'home view picks the home template over index');
+    assert(pick({ pageType: 'archive' }, templates).slug === 'archive',
+      'archive view picks the archive template');
+    // No archive-book registered → falls back to archive.
+    assert(pick({ pageType: 'archive', postType: 'book' }, templates).slug === 'archive',
+      'post-type archive falls back to archive when archive-book absent');
+    // Only index registered → home falls all the way back to index.
+    assert(pick({ pageType: 'home' }, [{ id: 'x//index', slug: 'index' }]).slug === 'index',
+      'home falls back to index when home template absent');
+    assert(pick({ pageType: 'home' }, []) === null, 'no templates → null');
+    assert(pick({ pageType: 'home' }, null) === null, 'null templates → null');
+    // Templates missing an id are ignored (can't build a postId from them).
+    assert(pick({ pageType: 'home' }, [{ slug: 'home' }]) === null,
+      'template without id is skipped');
+  }
+
+  // --- 24. buildSiteEditorUrl encodes the template id -------------------
+  {
+    console.log('\n[26] buildSiteEditorUrl — site editor deep link');
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+    const build = ctx.WPRest.buildSiteEditorUrl;
+
+    const url = build('https://example.com', { id: 'twentytwentyfour//home', slug: 'home' });
+    assert(url === 'https://example.com/wp-admin/site-editor.php?postType=wp_template&postId=twentytwentyfour%2F%2Fhome&canvas=edit',
+      `deep link built + id encoded: ${url}`);
+    assert(build('https://example.com', null) === null, 'null template → null URL');
+    assert(build('https://example.com', { slug: 'home' }) === null, 'template without id → null URL');
+  }
+
+  // --- 25. resolveTemplateEditUrlAsync — block vs classic theme ---------
+  {
+    console.log('\n[27] resolveTemplateEditUrlAsync — full block-theme resolution');
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+
+    // Block theme: /themes?status=active reports is_block_theme, then
+    // /templates lists the registered templates.
+    const blockFetch = async (url, options) => {
+      if (url.includes('/wp/v2/themes')) {
+        return { ok: true, async json() { return [{ stylesheet: 'twentytwentyfour', is_block_theme: true }]; } };
+      }
+      if (url.includes('/wp/v2/templates')) {
+        return {
+          ok: true,
+          async json() {
+            return [
+              { id: 'twentytwentyfour//index', slug: 'index' },
+              { id: 'twentytwentyfour//home', slug: 'home' },
+            ];
+          },
+        };
+      }
+      return { ok: false };
+    };
+
+    const blogHome = await ctx.WPRest.resolveTemplateEditUrlAsync({
+      ctx: { pageType: 'home', restApiRoot: 'https://example.com/wp-json/' },
+      origin: 'https://example.com',
+      nonce: 'deadbeef',
+      fetchImpl: blockFetch,
+    });
+    assert(blogHome.isBlockTheme === true, 'block theme detected via is_block_theme');
+    assert(blogHome.url === 'https://example.com/wp-admin/site-editor.php?postType=wp_template&postId=twentytwentyfour%2F%2Fhome&canvas=edit',
+      `blog index resolves to the home template: ${blogHome.url}`);
+
+    // Archive on the same block theme → falls back to the index template
+    // (no archive template registered above).
+    const archive = await ctx.WPRest.resolveTemplateEditUrlAsync({
+      ctx: { pageType: 'archive', restApiRoot: 'https://example.com/wp-json/' },
+      origin: 'https://example.com',
+      nonce: 'deadbeef',
+      fetchImpl: blockFetch,
+    });
+    assert(archive.url && archive.url.includes('postId=twentytwentyfour%2F%2Findex'),
+      `archive falls back to index template: ${archive.url}`);
+
+    // Classic theme: is_block_theme false → no URL, honest flag.
+    const classicFetch = async (url) => {
+      if (url.includes('/wp/v2/themes')) {
+        return { ok: true, async json() { return [{ stylesheet: 'twentytwentyone', is_block_theme: false }]; } };
+      }
+      return { ok: false };
+    };
+    const classic = await ctx.WPRest.resolveTemplateEditUrlAsync({
+      ctx: { pageType: 'home', restApiRoot: 'https://example.com/wp-json/' },
+      origin: 'https://example.com',
+      nonce: 'deadbeef',
+      fetchImpl: classicFetch,
+    });
+    assert(classic.isBlockTheme === false && classic.url === null,
+      'classic theme → no URL, isBlockTheme=false');
+
+    // Theme lookup fails (non-admin / REST off) → isBlockTheme null.
+    const unauthFetch = async () => ({ ok: false });
+    const unknown = await ctx.WPRest.resolveTemplateEditUrlAsync({
+      ctx: { pageType: 'home', restApiRoot: 'https://example.com/wp-json/' },
+      origin: 'https://example.com',
+      fetchImpl: unauthFetch,
+    });
+    assert(unknown.isBlockTheme === null && unknown.url === null,
+      'undeterminable theme → isBlockTheme=null, url=null');
+
+    // Non-template-backed page short-circuits without any fetch.
+    let touched = false;
+    const guardFetch = async () => { touched = true; return { ok: false }; };
+    const term = await ctx.WPRest.resolveTemplateEditUrlAsync({
+      ctx: { pageType: 'term', restApiRoot: 'https://example.com/wp-json/' },
+      origin: 'https://example.com',
+      fetchImpl: guardFetch,
+    });
+    assert(term.url === null && touched === false,
+      'term page short-circuits — no REST calls made');
+  }
+
   // --- 22. Subdirectory install — base URL derivation (issue #33) -------
   {
     console.log('\n[22] Subdirectory install base URL + admin link resolution');

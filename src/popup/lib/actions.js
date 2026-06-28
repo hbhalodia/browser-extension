@@ -237,6 +237,22 @@ async function resolveRestNonce(baseUrl = null) {
 	return { tab, nonce };
 }
 
+/**
+ * Resolves a template-backed view (blog index, archive) to a block-theme
+ * site-editor edit URL. Returns { url, isBlockTheme } — the nonce is needed
+ * because /wp/v2/themes and /wp/v2/templates are private endpoints. Falls
+ * back to a null result the popup treats as "not resolvable."
+ */
+export async function requestTemplateEditUrl(baseUrl = null) {
+	try {
+		const { tab, nonce } = await resolveRestNonce(baseUrl);
+		const res = await chrome.tabs.sendMessage(tab.id, { type: 'RESOLVE_TEMPLATE_EDIT_URL', nonce });
+		return res || { url: null, isBlockTheme: null };
+	} catch (_) {
+		return { url: null, isBlockTheme: null };
+	}
+}
+
 export async function requestSiteInfo(baseUrl = null) {
 	try {
 		const { tab, nonce } = await resolveRestNonce(baseUrl);
