@@ -97,6 +97,26 @@
     }
   }
 
+  /**
+   * Same-origin WordPress logout guard for the admin bar's logout href. We
+   * only trust that href to skip WP's "are you sure?" confirm (it carries the
+   * `_wpnonce`); a spoofed admin bar could otherwise point logout at an
+   * arbitrary same-origin URL. Require the real shape —
+   * `<base>/wp-login.php?action=logout` — with the path allowed under a
+   * subdirectory install (#33).
+   */
+  function isSameOriginLogoutUrl(href, origin) {
+    if (!href || !origin) return false;
+    try {
+      const u = new URL(href);
+      return u.origin === origin
+        && /\/wp-login\.php$/.test(u.pathname)
+        && new URLSearchParams(u.search).get('action') === 'logout';
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function fetchTermId({ restApiRoot, origin, taxonomy, slug, fetchImpl = fetch }) {
     if (!taxonomy || !slug) return null;
     const root = normalizeRoot(restApiRoot, origin);
@@ -297,7 +317,9 @@
   }
 
   function resolveEditUrlSync(ctx, origin) {
-    if (ctx.adminBarEditHref && isSameOrigin(ctx.adminBarEditHref, origin)) {
+    // Require same-origin /wp-admin/, not just same-origin: a spoofed admin bar
+    // could otherwise point the Edit action at an arbitrary same-origin path.
+    if (ctx.adminBarEditHref && isSameOriginAdminUrl(ctx.adminBarEditHref, origin)) {
       return ctx.adminBarEditHref;
     }
 
@@ -607,5 +629,6 @@
     fetchRawContent,
     findNonceInDocument,
     isSameOriginAdminUrl,
+    isSameOriginLogoutUrl,
   };
 })();

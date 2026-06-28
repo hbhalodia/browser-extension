@@ -73,7 +73,7 @@
     "description": "Button label to trigger clearing all extension data"
   },
   "options_clear_confirm": {
-    "message": "Clear all extension data?\n\nThis removes every saved per-site preference, the global defaults on this page, and the cached WordPress detection results. Cannot be undone.",
+    "message": "Clear all extension data?\n\nThis removes every saved per-site preference, the global defaults on this page, the cached WordPress detection results, and your saved My Sites list. Cannot be undone.",
     "description": "Confirmation dialog text shown before clearing all data"
   },
   "options_cleared_success": {

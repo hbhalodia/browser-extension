@@ -284,7 +284,10 @@ chrome.commands.onCommand.addListener(async (command) => {
   let editUrl = null;
   if (ctx.adminBarEditHref) {
     try {
-      if (new URL(ctx.adminBarEditHref).origin === origin) editUrl = ctx.adminBarEditHref;
+      // Require same-origin /wp-admin/ (not just same-origin) so a spoofed
+      // admin bar can't aim the shortcut at an arbitrary same-origin path.
+      const u = new URL(ctx.adminBarEditHref);
+      if (u.origin === origin && /\/wp-admin\//.test(u.pathname)) editUrl = ctx.adminBarEditHref;
     } catch (_) { /* malformed href — ignore */ }
   }
 
