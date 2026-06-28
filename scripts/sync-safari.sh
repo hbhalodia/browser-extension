@@ -20,12 +20,16 @@ fi
 
 # Wipe sub-folders so deletes in source propagate; top-level files are
 # overwritten below so the DEST listing matches source exactly.
-rm -rf "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons"
+rm -rf "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons" "$DEST/_locales"
 mkdir -p "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons"
 
 cp "$ROOT/manifest.json" "$DEST/"
 cp "$ROOT/background.js" "$DEST/"
 cp "$ROOT/content.js"    "$DEST/"
+
+# i18n message catalogs — the manifest's __MSG_*__ name/description and every
+# chrome.i18n.getMessage() call resolve against these, so Safari needs them too.
+cp -R "$ROOT/_locales" "$DEST/_locales"
 
 cp "$ROOT/lib/early.js"            "$DEST/lib/"
 cp "$ROOT/lib/detect.js"           "$DEST/lib/"
