@@ -430,7 +430,9 @@ body {
 
 .wpd-card__hint {
 	flex-shrink: 0;
-	color: var(--wpd-ink-muted);
+	/* --wpd-ink-dim (not -muted): -muted only reaches ~2.4:1 in dark mode;
+	 * -dim clears WCAG AA and is more legible in light mode too. */
+	color: var(--wpd-ink-dim);
 	font-family: var(--wpds-typography-font-family-mono, ui-monospace, "SF Mono", monospace);
 	font-size: 11px;
 	font-weight: 400;
@@ -810,6 +812,15 @@ body {
 	border-radius: 999px;
 	background: var(--wpd-border);
 	color: var(--wpd-ink-dim);
+}
+
+/* The version pill sits on --wpd-border, which is light enough in dark mode
+ * that --wpd-ink-dim text only reaches ~2.6:1; brighten the label to clear
+ * WCAG AA (≥3:1) without darkening the pill (a shared border token). */
+@media (prefers-color-scheme: dark) {
+	.wpd-siteinfo__row-tag {
+		color: #bbbbbb;
+	}
 }
 
 .wpd-siteinfo__row-sub {
