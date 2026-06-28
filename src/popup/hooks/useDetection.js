@@ -232,6 +232,7 @@ export function useDetection() {
 					tabId: tab.id,
 					isWordPress: true,
 					isLoggedIn: !!result.detection.context.isLoggedIn,
+					baseUrl: result.detection.context.baseUrl || null,
 				}).catch(() => {});
 
 				// Render now with what we have. The fresh-fetch below can take

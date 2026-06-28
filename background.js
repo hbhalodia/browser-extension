@@ -7,7 +7,12 @@
  *   - Purge origins unvisited for longer than PURGE_AFTER
  *   - Update the toolbar icon to reflect WP detection per tab
  *   - Serve cached detection to the popup
+ *   - Maintain the user's "My Sites" list (auto-add on fresh login)
  */
+
+// Pure My Sites store helpers, attached to globalThis.WPMySites — shared with
+// the popup, which loads the same file as a classic script.
+importScripts('lib/my-sites.js');
 
 const CACHE_KEY = 'wp_detection_cache_v1';
 const REFRESH_INTERVAL      = 7 * 24 * 60 * 60 * 1000;  // 1 week
@@ -48,6 +53,24 @@ async function purgeStale() {
     }
   }
   if (changed) await writeCache(cache);
+}
+
+// --- My Sites: persistent list of WP installs the user logs into ----------
+
+// Record a logged-in WordPress site, applying the curation rule in
+// lib/my-sites.js. `wasLoggedIn` is the prior cached login state for this
+// origin, so a site the user removed isn't silently re-added while they keep
+// browsing it logged in — only a fresh logged-out→logged-in transition does.
+async function recordLogin(origin, baseUrl, wasLoggedIn) {
+  if (!origin) return;
+  const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
+  const store = data[WPMySites.STORE_KEY] || {};
+  const next = WPMySites.upsertOnLogin(store, {
+    origin, baseUrl: baseUrl || null, wasLoggedIn, now: Date.now(),
+  });
+  if (next !== store) {
+    await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
+  }
 }
 
 // --- Detection handling ---------------------------------------------------
@@ -106,10 +129,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handlePopupResolution(msg) {
-  const { origin, tabId, isLoggedIn, isWordPress } = msg;
+  const { origin, tabId, isLoggedIn, isWordPress, baseUrl } = msg;
   if (!origin) return;
   const cache = await getCache();
   const existing = cache[origin] || null;
+  const wasLoggedIn = existing?.isLoggedIn === true; // capture before mutating
   if (existing) {
     existing.isLoggedIn = !!isLoggedIn;
     existing.lastSeen = Date.now();
@@ -117,6 +141,11 @@ async function handlePopupResolution(msg) {
     await writeCache(cache);
   }
   if (tabId) await updateToolbar(tabId, !!isWordPress, { isLoggedIn });
+
+  // Catches cookie-API logins the page DOM missed (logged-out HTML).
+  if (isWordPress && isLoggedIn) {
+    await recordLogin(origin, baseUrl, wasLoggedIn);
+  }
 }
 
 async function handleDetection(msg, sender) {
@@ -180,6 +209,12 @@ async function handleDetection(msg, sender) {
   cache[origin] = entry;
   await writeCache(cache);
   await updateToolbar(sender.tab.id, entry.isWordPress, detection.context);
+
+  // Add to "My Sites" on a logged-in WordPress install. `existing?.isLoggedIn`
+  // is the prior state, so a removed site isn't re-added while still browsing.
+  if (entry.isWordPress && entry.isLoggedIn) {
+    await recordLogin(origin, detection.context?.baseUrl, existing?.isLoggedIn === true);
+  }
 }
 
 // --- Toolbar icon + title -------------------------------------------------
