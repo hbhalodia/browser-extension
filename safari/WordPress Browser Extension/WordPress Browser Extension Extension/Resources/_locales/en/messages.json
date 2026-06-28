@@ -411,5 +411,9 @@
   "my_sites_rename_placeholder": {
     "message": "Custom name",
     "description": "Placeholder/label for the rename field in the My Sites list"
+  },
+  "host_local_dev": {
+    "message": "Local Dev",
+    "description": "Host badge label for a local development environment (the other host labels are brand names and are not translated)"
   }
 }
