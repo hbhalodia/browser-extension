@@ -12,11 +12,13 @@ Plugins layer their own items onto the admin bar too. For most everyday work, *E
 A few extras follow naturally from sitting at the browser level instead of inside the site. It identifies whether the current webpage is powered by WordPress (and, where the signals allow, which managed host it's on), provides a one-click log-in shortcut, and packages developer tools (mobile preview, cache bypass, cookies/site-data clear, block highlighter) that are genuinely cleaner as a browser overlay than as in-site UI.
 
 <p align="center">
-  <img src="screenshots/logged-in.png" width="380" alt="Logged in — Edit Case Study, host detected as WordPress VIP, admin bar toggle, +New / Site Information / Developer Tools accordions">
-  <img src="screenshots/dev-tools.png" width="380" alt="Developer Tools expanded — Highlight Blocks toggle, Mobile Preview, Bypass Page Cache, Query Monitor, Clear Site Data">
+  <img src="screenshots/my-sites.png" width="400" alt="Logged in on a WordPress site — Edit Page, WordPress Admin, Show Admin Bar toggle, +New and Developer Tools accordions, and the My Sites launcher expanded with three saved sites and their site icons">
 </p>
 <p align="center">
+  <img src="screenshots/dev-tools.png" width="380" alt="Developer Tools expanded — Highlight Blocks toggle, Mobile Preview, Bypass Page Cache, Query Monitor, Clear Site Data">
   <img src="screenshots/wp-admin.png" width="380" alt="wp-admin editor — View Post, Visit Site, WordPress Admin, Log Out">
+</p>
+<p align="center">
   <img src="screenshots/logged-out.png" width="380" alt="Logged out on a WordPress site — version detected, Log In / Log In Return to Page actions">
 </p>
 <p align="center">
@@ -25,7 +27,7 @@ A few extras follow naturally from sitting at the browser level instead of insid
 
 ## Status
 
-**v0.9.x — pre-1.0, in production use.** A dedicated v0.10.x phase will handle store-readiness work (permissions audit, bundle identifier, store listing assets, publisher account decisions) before the v1.0 milestone of initial official directory releases on the **Chrome Web Store** and **Safari / Mac App Store** under the WordPress publisher account. Firefox and Edge follow post-1.0. See [`ROADMAP.md`](ROADMAP.md) for what's locked, what's open, and what's next.
+**v0.10.x — pre-1.0, in production use.** A dedicated v0.11.x phase will handle store-readiness work (permissions audit, bundle identifier, store listing assets, publisher account decisions) before the v1.0 milestone of initial official directory releases on the **Chrome Web Store** and **Safari / Mac App Store** under the WordPress publisher account. Firefox and Edge follow post-1.0. See [`ROADMAP.md`](ROADMAP.md) for what's locked, what's open, and what's next.
 
 ## Privacy
 
@@ -40,15 +42,20 @@ No telemetry, no analytics, no third-party tracking. The extension does its work
 3. Open `chrome://extensions`, enable **Developer mode**
 4. Click **Load unpacked** and select the unzipped folder
 
-### Safari
+### Safari (ad-hoc signed, pre-store-release)
 
-See [`SAFARI.md`](SAFARI.md) — requires Xcode and a one-time Xcode Run (⌘R).
+1. Download the latest `…-safari.zip` from [Releases](https://github.com/WordPress/browser-extension/releases) and unzip
+2. Drag **WordPress Browser Extension.app** to Applications
+3. First launch: right-click the app, choose **Open**, and confirm the Gatekeeper prompt (the build is ad-hoc signed, not Developer-ID signed)
+4. Quit the app, then enable the extension in **Safari → Settings → Extensions**
+
+To build from source instead (Xcode), see [`SAFARI.md`](SAFARI.md).
 
 ## Features
 
 - **Detect WordPress** — Identifies WP sites automatically via REST API links, generator tags, asset paths, and body classes. The toolbar icon has three states: a WordPress-blue circle when logged in to a WP site, dark gray when logged out on a WP site, and dark gray with a diagonal slash for non-WP pages. The full-bleed background keeps the icon legible against any browser chrome.
 - **Site icon in the popup header** — When a site has a WordPress Site Icon configured (Customize → Site Identity), it appears next to the hostname in the popup header for fast visual identification.
-- **Edit this page** — Jump straight to the editor for posts, pages, categories, tags, authors, and custom post types — including hyphenated CPT slugs like `case-study`. Keyboard shortcut: `Alt+Shift+E` (`Option+Shift+E` on Mac), customizable at `chrome://extensions/shortcuts`.
+- **Edit this page** — Jump straight to the editor for posts, pages, categories, tags, authors, and custom post types — including hyphenated CPT slugs like `case-study`. On block themes, template-backed pages such as the blog index and archives open in the site editor. Keyboard shortcut: `Alt+Shift+E` (`Option+Shift+E` on Mac), customizable at `chrome://extensions/shortcuts`.
 - **View / Preview from the editor** — On wp-admin edit screens, see the published page or preview a draft (with nonce) in one click. Works for all post types.
 - **+ New content menu** — Mirrors the admin bar's "+ New" dropdown with the post types your role can create.
 - **Identify the host** — Detects WP Engine, WordPress VIP, Pantheon, Kinsta, Flywheel, Cloudways, WordPress.com, Pressable, and local dev environments. Cached per origin for 90 days.
@@ -56,6 +63,7 @@ See [`SAFARI.md`](SAFARI.md) — requires Xcode and a one-time Xcode Run (⌘R).
 - **Account menu** — A circular avatar button in the popup header opens an account dropdown with the logged-in user's display name, role (Super Admin / Administrator / Editor / etc.), and one-click links to the WordPress profile and Gravatar (when the avatar comes from gravatar.com). Sourced from the admin bar's My Account menu.
 - **One-click sign out** — Inline confirm in the account menu, then logs out via the admin bar's nonce so WordPress's "are you sure?" page is skipped.
 - **Developer tools** — Mobile preview window (iPhone-sized), bypass page cache, clear cookies + site data (preserving your WP login), Highlight Blocks (outline `wp-block-*` elements with a breadcrumb tooltip), and a Query Monitor toggle when QM is installed.
+- **My Sites** — A launcher for the WordPress sites signed in on this browser. The extension remembers each site as it detects a login, then lists them with their site icons in a global popup section available on any page, for one-click access to any site's admin. Rename or remove entries in an inline edit mode. Saved locally only, and cleared along with the rest of the extension's data.
 
 ## Options page
 
@@ -65,7 +73,7 @@ Current options:
 
 - **Hide admin bar by default** — Flips the per-site default for the admin bar toggle. Per-site choices in the popup always win over this default.
 - **Show site information panel (experimental)** — Adds a panel to the popup that surfaces the active theme, installed plugins, site name, and REST namespaces. Detection is heuristic and asset-path inference can produce duplicates or false positives, so it is off by default. Powered by the WP REST API for admins, with DOM-scanned slugs as a graceful fallback.
-- **Clear all data** — Wipes per-site preferences, the global defaults above, and the cached WordPress detection results. Useful for testing or starting fresh.
+- **Clear all data** — Wipes per-site preferences, the global defaults above, the cached WordPress detection results, and the saved My Sites list. Useful for testing or starting fresh.
 
 ## Development
 
@@ -78,6 +86,8 @@ npm start         # watch mode
 ```
 
 Run smoke tests for `lib/` with `cd test && npm install && npm test`.
+
+UI strings live in `_locales/` and resolve through Chrome's i18n APIs (`__MSG_*__` fields in the manifest, `chrome.i18n.getMessage` in code). English is the only catalog today; translations can be added under `_locales/<locale>/`.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contributor flow, conventions, and the permissions-discussion policy.
 
