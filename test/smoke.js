@@ -876,7 +876,8 @@ async function main() {
     console.log('\n[23] WPMySites store helpers (add on login / curation / sort)');
     const dom = new JSDOM('<html><body></body></html>');
     const { WPMySites } = loadModules(dom);
-    const A = 'https://acme.com', B = 'https://blog.example.com';
+    const A = 'https://acme.com', B = 'https://blog.example.com', C = 'https://shop.example.com';
+    const listed = (store) => WPMySites.listSites(store).map((s) => s.origin);
 
     // Fresh login adds; second login bumps recency, not a duplicate.
     let store = {};
@@ -886,19 +887,24 @@ async function main() {
     store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 200 });
     assert(Object.keys(store).length === 1 && store[A].lastLoggedInAt === 200, 'revisit bumps recency, no dupe');
 
-    // Removed-while-browsing must NOT silently re-add (wasLoggedIn true).
+    // Already-logged-in site (no transition) still gets added when absent.
+    store = WPMySites.upsertOnLogin(store, { origin: C, baseUrl: C, wasLoggedIn: true, now: 250 });
+    assert(listed(store).includes(C), 'already-logged-in absent site is added regardless of transition');
+
+    // Remove tombstones (hidden, not deleted) so still-logged-in browsing
+    // does NOT silently re-add it.
     store = WPMySites.removeSite(store, A);
-    assert(!store[A], 'remove deletes the row');
-    const same = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 300 });
-    assert(!same[A], 'still-logged-in browsing does not re-add a removed site');
-    // A genuine logged-out → logged-in transition re-adds it.
+    assert(store[A] && store[A].dismissed === true, 'remove tombstones the record');
+    assert(!listed(store).includes(A), 'removed site is hidden from the list');
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 300 });
+    assert(!listed(store).includes(A), 'still-logged-in browsing does not re-add a removed site');
+    // A genuine logged-out → logged-in transition un-dismisses it.
     store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: false, now: 400 });
-    assert(!!store[A], 'fresh login transition re-adds a removed site');
+    assert(listed(store).includes(A), 'fresh login transition re-adds a removed site');
 
     // Sort: newest login first.
     store = WPMySites.upsertOnLogin(store, { origin: B, baseUrl: B, wasLoggedIn: false, now: 500 });
-    const order = WPMySites.listSites(store).map((s) => s.origin);
-    assert(order[0] === B && order[1] === A, 'listSites sorts by lastLoggedInAt desc');
+    assert(listed(store)[0] === B, 'listSites sorts by lastLoggedInAt desc');
 
     // Rename + display label, set and clear.
     assert(WPMySites.displayName(store[A]) === 'acme.com', 'default label is the hostname (www-stripped)');

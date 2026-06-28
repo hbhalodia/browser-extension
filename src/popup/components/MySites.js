@@ -66,6 +66,8 @@ export function MySites() {
 function MySiteRow({ site, label, editing, onRemove, onRename }) {
 	const { origin } = site;
 	const baseUrl = site.baseUrl || origin;
+	const iconUrl = site.iconUrl || null;
+	const [iconFailed, setIconFailed] = useState(false);
 	let host = origin;
 	try {
 		host = new URL(origin).host;
@@ -115,7 +117,17 @@ function MySiteRow({ site, label, editing, onRemove, onRename }) {
 				title={host}
 			>
 				<span className="wpd-card__icon" aria-hidden="true">
-					<Icon icon={globe} size={20} />
+					{iconUrl && !iconFailed ? (
+						<img
+							className="wpd-mysites__favicon"
+							src={iconUrl}
+							alt=""
+							referrerPolicy="no-referrer"
+							onError={() => setIconFailed(true)}
+						/>
+					) : (
+						<Icon icon={globe} size={20} />
+					)}
 				</span>
 				<span className="wpd-card__label">{label}</span>
 			</button>

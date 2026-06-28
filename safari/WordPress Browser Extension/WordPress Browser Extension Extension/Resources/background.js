@@ -61,12 +61,12 @@ async function purgeStale() {
 // lib/my-sites.js. `wasLoggedIn` is the prior cached login state for this
 // origin, so a site the user removed isn't silently re-added while they keep
 // browsing it logged in — only a fresh logged-out→logged-in transition does.
-async function recordLogin(origin, baseUrl, wasLoggedIn) {
+async function recordLogin(origin, baseUrl, iconUrl, wasLoggedIn) {
   if (!origin) return;
   const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
   const store = data[WPMySites.STORE_KEY] || {};
   const next = WPMySites.upsertOnLogin(store, {
-    origin, baseUrl: baseUrl || null, wasLoggedIn, now: Date.now(),
+    origin, baseUrl: baseUrl || null, iconUrl: iconUrl || null, wasLoggedIn, now: Date.now(),
   });
   if (next !== store) {
     await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
@@ -129,7 +129,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handlePopupResolution(msg) {
-  const { origin, tabId, isLoggedIn, isWordPress, baseUrl } = msg;
+  const { origin, tabId, isLoggedIn, isWordPress, baseUrl, siteIconUrl } = msg;
   if (!origin) return;
   const cache = await getCache();
   const existing = cache[origin] || null;
@@ -144,7 +144,7 @@ async function handlePopupResolution(msg) {
 
   // Catches cookie-API logins the page DOM missed (logged-out HTML).
   if (isWordPress && isLoggedIn) {
-    await recordLogin(origin, baseUrl, wasLoggedIn);
+    await recordLogin(origin, baseUrl, siteIconUrl, wasLoggedIn);
   }
 }
 
@@ -213,7 +213,12 @@ async function handleDetection(msg, sender) {
   // Add to "My Sites" on a logged-in WordPress install. `existing?.isLoggedIn`
   // is the prior state, so a removed site isn't re-added while still browsing.
   if (entry.isWordPress && entry.isLoggedIn) {
-    await recordLogin(origin, detection.context?.baseUrl, existing?.isLoggedIn === true);
+    await recordLogin(
+      origin,
+      detection.context?.baseUrl,
+      detection.context?.siteIconUrl,
+      existing?.isLoggedIn === true,
+    );
   }
 }
 
