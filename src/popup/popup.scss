@@ -1091,6 +1091,14 @@ body {
 	}
 }
 
+/* The edit-mode main area is a div (not a button); it reuses .wpd-card__main
+ * for identical favicon + padding geometry, so neutralize the button cursor. */
+.wpd-mysites__main--edit {
+	cursor: default;
+}
+
+/* Name field sits inside .wpd-card__main, which already supplies the padding
+ * and the gap after the favicon — so the input adds none of its own. */
 .wpd-mysites__rename {
 	flex: 1;
 	min-width: 0;
@@ -1098,7 +1106,7 @@ body {
 	background: transparent;
 	color: var(--wpd-ink);
 	font: inherit;
-	padding: 0 12px;
+	padding: 0;
 
 	&::placeholder {
 		color: var(--wpd-ink-muted);

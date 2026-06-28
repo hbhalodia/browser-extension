@@ -82,29 +82,54 @@ function MySiteRow({ site, label, editing, onRemove, onRename }) {
 	const admin = (event) =>
 		runAction('admin', { origin, baseUrl, url: '', newTab: isNewTabIntent(event) });
 
+	// Shared leading favicon (site icon, globe fallback) — identical in both
+	// view and edit modes so the row geometry doesn't shift on toggle.
+	const favicon = (
+		<span className="wpd-card__icon" aria-hidden="true">
+			{iconUrl && !iconFailed ? (
+				<img
+					className="wpd-mysites__favicon"
+					src={iconUrl}
+					alt=""
+					referrerPolicy="no-referrer"
+					onError={() => setIconFailed(true)}
+				/>
+			) : (
+				<Icon icon={globe} size={20} />
+			)}
+		</span>
+	);
+
+	// Edit mode mirrors the view row: same favicon + main area, but the label
+	// becomes an editable name field and the admin button becomes remove.
 	if (editing) {
 		return (
-			<div className="wpd-card-row wpd-mysites__row--edit">
-				<input
-					className="wpd-mysites__rename"
-					type="text"
-					defaultValue={site.customName || ''}
-					placeholder={host}
-					aria-label={chrome.i18n.getMessage('my_sites_rename_placeholder') /* "Custom name" */}
-					onBlur={(e) => onRename(origin, e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === 'Enter') e.target.blur();
-					}}
-				/>
-				<button
-					type="button"
-					className="wpd-card__aux-btn wpd-mysites__remove"
-					onClick={() => onRemove(origin)}
-					aria-label={chrome.i18n.getMessage('my_sites_remove') /* "Remove site" */}
-					title={chrome.i18n.getMessage('my_sites_remove') /* "Remove site" */}
-				>
-					<Icon icon={close} size={16} />
-				</button>
+			<div className="wpd-card-row">
+				<div className="wpd-card__main wpd-mysites__main--edit">
+					{favicon}
+					<input
+						className="wpd-mysites__rename"
+						type="text"
+						defaultValue={site.customName || ''}
+						placeholder={host}
+						aria-label={chrome.i18n.getMessage('my_sites_rename_placeholder') /* "Custom name" */}
+						onBlur={(e) => onRename(origin, e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter') e.target.blur();
+						}}
+					/>
+				</div>
+				<div className="wpd-card__aux">
+					<button
+						type="button"
+						className="wpd-card__aux-btn wpd-mysites__remove"
+						onClick={() => onRemove(origin)}
+						aria-label={chrome.i18n.getMessage('my_sites_remove') /* "Remove site" */}
+						title={chrome.i18n.getMessage('my_sites_remove') /* "Remove site" */}
+					>
+						<Icon icon={close} size={16} />
+					</button>
+				</div>
 			</div>
 		);
 	}
@@ -118,19 +143,7 @@ function MySiteRow({ site, label, editing, onRemove, onRename }) {
 				onAuxClick={visit}
 				title={host}
 			>
-				<span className="wpd-card__icon" aria-hidden="true">
-					{iconUrl && !iconFailed ? (
-						<img
-							className="wpd-mysites__favicon"
-							src={iconUrl}
-							alt=""
-							referrerPolicy="no-referrer"
-							onError={() => setIconFailed(true)}
-						/>
-					) : (
-						<Icon icon={globe} size={20} />
-					)}
-				</span>
+				{favicon}
 				<span className="wpd-card__label">{label}</span>
 			</button>
 			<div className="wpd-card__aux">
