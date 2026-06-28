@@ -9,6 +9,25 @@ import { NotWordPressView } from './components/NotWordPressView';
 import { NotSupportedView } from './components/NotSupportedView';
 import { LoadingView } from './components/LoadingView';
 import './popup.scss';
+import enMessages from '../../_locales/en/messages.json';
+
+// Faithful-enough chrome.i18n.getMessage shim for the dev preview (the real
+// API only exists in the extension runtime). Resolves named placeholders
+// ($NAME$ → its content) then positional $1..$9 substitutions, matching
+// Chrome's order. Returns '' for unknown keys, like the real API.
+function previewGetMessage(key, substitutions) {
+	const entry = enMessages[key];
+	if (!entry) return '';
+	let msg = entry.message;
+	const subs =
+		substitutions == null ? [] : Array.isArray(substitutions) ? substitutions : [substitutions];
+	if (entry.placeholders) {
+		for (const [name, def] of Object.entries(entry.placeholders)) {
+			msg = msg.replace(new RegExp(`\\$${name}\\$`, 'gi'), def.content || '');
+		}
+	}
+	return msg.replace(/\$(\d)/g, (_, d) => subs[Number(d) - 1] ?? '');
+}
 
 // Shim the content-script globals the popup reads from window.
 window.WPRest = {
@@ -58,6 +77,7 @@ window.chrome = {
 	runtime: { sendMessage: async () => null },
 	storage: { local: { get: async () => ({}), set: async () => {} } },
 	scripting: { executeScript: async () => [{ result: 'fake-nonce' }] },
+	i18n: { getMessage: previewGetMessage },
 };
 
 const fixtures = [

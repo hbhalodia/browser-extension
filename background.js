@@ -210,8 +210,8 @@ async function updateToolbar(tabId, isWordPress, context) {
   }, ignoreLastError);
 
   const title = isWordPress
-    ? `WordPress detected${context?.isLoggedIn ? ' — logged in' : ''}`
-    : 'WordPress Browser Extension';
+    ? chrome.i18n.getMessage(context?.isLoggedIn ? 'toolbar_title_detected_logged_in' : 'toolbar_title_detected') // "WordPress detected — logged in" / "WordPress detected"
+    : chrome.i18n.getMessage('toolbar_title_default'); // "WordPress Browser Extension"
   chrome.action.setTitle({ tabId, title }, ignoreLastError);
 }
 
