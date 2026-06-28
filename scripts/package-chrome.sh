@@ -31,11 +31,16 @@ cp manifest.json    "$STAGE/"
 cp background.js    "$STAGE/"
 cp content.js       "$STAGE/"
 
+# i18n catalogs — the manifest's __MSG_*__ fields (default_locale) and every
+# chrome.i18n.getMessage() call resolve against these.
+cp -R _locales "$STAGE/_locales"
+
 cp lib/early.js            "$STAGE/lib/"
 cp lib/detect.js           "$STAGE/lib/"
 cp lib/rest.js             "$STAGE/lib/"
 cp lib/host.js             "$STAGE/lib/"
 cp lib/block-inspector.js  "$STAGE/lib/"
+cp lib/my-sites.js         "$STAGE/lib/"
 
 cp popup/popup.html "$STAGE/popup/"
 
@@ -47,6 +52,11 @@ cp dist/popup.css "$STAGE/dist/"
 cp dist/popup.js  "$STAGE/dist/"
 
 cp icons/*.png "$STAGE/icons/"
+
+# Integrity gate: every file the manifest / popup / background references must
+# be present in the stage, or the zip would install or run broken. Fails the
+# build (set -e) if anything is missing.
+node "$ROOT/scripts/verify-package.js" "$STAGE"
 
 rm -f "$ZIP"
 ( cd "$STAGE" && zip -rq "$ZIP" . )

@@ -457,21 +457,38 @@ async function main() {
       'explicit options.origin lets DOMParser-style docs validate hrefs');
   }
 
-  // --- 18. isSameOriginAdminUrl helper ----------------------------------
+  // --- 18. DOM-sourced admin-bar URL guards -----------------------------
+  // A hostile page can fake an admin bar, so same-origin alone isn't enough:
+  // edit/admin URLs must be /wp-admin/, and logout must be the real WP shape.
   {
-    console.log('\n[18] isSameOriginAdminUrl helper');
+    console.log('\n[18] isSameOriginAdminUrl / isSameOriginLogoutUrl guards');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
-    const fn = ctx.WPRest.isSameOriginAdminUrl;
-    assert(fn('https://example.com/wp-admin/post-new.php', 'https://example.com') === true,
-      'same-origin /wp-admin/ URL accepted');
-    assert(fn('https://attacker.example/wp-admin/post-new.php', 'https://example.com') === false,
-      'cross-origin rejected');
-    assert(fn('https://example.com/random-page', 'https://example.com') === false,
-      'same-origin non-/wp-admin/ rejected');
-    assert(fn('not a url', 'https://example.com') === false, 'malformed URL rejected');
-    assert(fn(null, 'https://example.com') === false, 'null href rejected');
-    assert(fn('https://example.com/wp-admin/x', null) === false, 'null origin rejected');
+    const O = 'https://example.com';
+    const adminUrl = ctx.WPRest.isSameOriginAdminUrl;
+    const logoutUrl = ctx.WPRest.isSameOriginLogoutUrl;
+
+    // isSameOriginAdminUrl — same-origin /wp-admin/ required.
+    assert(adminUrl('https://example.com/wp-admin/post-new.php', O) === true, 'same-origin /wp-admin/ accepted');
+    assert(adminUrl('https://example.com/wordpress/wp-admin/post.php', O) === true, 'subdirectory /wp-admin/ accepted');
+    assert(adminUrl('https://attacker.example/wp-admin/post-new.php', O) === false, 'cross-origin rejected');
+    assert(adminUrl('https://example.com/random-page', O) === false, 'same-origin non-/wp-admin/ rejected');
+    // Malicious same-origin paths a spoofed admin bar might inject:
+    assert(adminUrl('https://example.com/account/delete', O) === false, 'same-origin /account/delete rejected');
+    assert(adminUrl('https://example.com/not-wp-admin/post.php?action=edit', O) === false, '"not-wp-admin" lookalike rejected');
+    assert(adminUrl('not a url', O) === false, 'malformed URL rejected');
+    assert(adminUrl(null, O) === false, 'null href rejected');
+    assert(adminUrl('https://example.com/wp-admin/x', null) === false, 'null origin rejected');
+
+    // isSameOriginLogoutUrl — same-origin wp-login.php?action=logout required.
+    assert(logoutUrl('https://example.com/wp-login.php?action=logout', O) === true, 'logout shape accepted');
+    assert(logoutUrl('https://example.com/wp-login.php?action=logout&_wpnonce=abc123', O) === true, 'logout with nonce accepted');
+    assert(logoutUrl('https://example.com/wordpress/wp-login.php?action=logout', O) === true, 'subdirectory logout accepted');
+    assert(logoutUrl('https://example.com/wp-login.php?action=not-logout', O) === false, 'wrong action rejected');
+    assert(logoutUrl('https://example.com/wp-login.php', O) === false, 'missing action rejected');
+    assert(logoutUrl('https://example.com/account/delete', O) === false, 'non-login path rejected');
+    assert(logoutUrl('https://attacker.example/wp-login.php?action=logout', O) === false, 'cross-origin logout rejected');
+    assert(logoutUrl(null, O) === false, 'null logout href rejected');
   }
 
   // --- 19. Site icon detection from <link> tags -------------------------
@@ -1065,6 +1082,22 @@ async function main() {
     assert(WPMySites.displayName(store[A]) === 'Acme — Staging', 'custom name wins for the label');
     store = WPMySites.renameSite(store, A, '   ');
     assert(store[A].customName === undefined, 'blank rename clears the custom name');
+  }
+
+  // --- 28. Package integrity — referenced runtime files exist -----------
+  {
+    console.log('\n[28] verify-package — every referenced runtime file is present');
+    const { collectReferenced, verify } = require('../scripts/verify-package.js');
+    const root = path.join(__dirname, '..');
+    const refs = collectReferenced(root);
+    const missing = verify(root);
+    assert(missing.length === 0, `no referenced runtime files missing (missing: ${missing.join(', ') || 'none'})`);
+    // Guard the exact class of regression this check exists for: new runtime
+    // files that the packaging list could forget.
+    assert(refs.includes('_locales/en/messages.json'), '_locales catalog tracked (manifest default_locale)');
+    assert(refs.includes('lib/my-sites.js'), 'lib/my-sites.js tracked (background importScripts)');
+    assert(refs.includes('lib/rest.js') && refs.includes('dist/popup.js'),
+      'popup classic scripts + bundle tracked (popup.html)');
   }
 
   console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' failure(s).'}`);

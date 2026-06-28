@@ -41,12 +41,14 @@ export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl
 		// could inject a fake admin bar pointing offsite. Fall back to the
 		// bare URL when the captured href isn't trustworthy.
 		case 'signout': {
-			let safeLogout = null;
-			if (logoutUrl) {
-				try {
-					if (new URL(logoutUrl).origin === origin) safeLogout = logoutUrl;
-				} catch (_) { /* malformed URL */ }
-			}
+			// Trust the admin bar's logout href only if it has the real WP logout
+			// shape — same-origin /wp-login.php?action=logout (it carries the
+			// _wpnonce that skips WP's confirm). A spoofed admin bar could
+			// otherwise aim logout at an arbitrary same-origin URL. Falls back to
+			// the synthesized logout (no nonce → WP shows its confirm) when not.
+			const rest = typeof window !== 'undefined' ? window.WPRest : null;
+			const safeLogout =
+				rest && rest.isSameOriginLogoutUrl(logoutUrl, origin) ? logoutUrl : null;
 			target = safeLogout || `${base}/wp-login.php?action=logout`;
 			break;
 		}
