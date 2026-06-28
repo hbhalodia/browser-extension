@@ -53,7 +53,7 @@ To build from source instead (Xcode), see [`SAFARI.md`](SAFARI.md).
 
 ## Features
 
-- **Detect WordPress** — Identifies WP sites automatically via REST API links, generator tags, asset paths, and body classes. The toolbar icon has three states: a WordPress-blue circle when logged in to a WP site, dark gray when logged out on a WP site, and dark gray with a diagonal slash for non-WP pages. The full-bleed background keeps the icon legible against any browser chrome.
+- **Detect WordPress** — Identifies WP sites automatically via REST API links, generator tags, asset paths, and body classes. The toolbar icon has three states: a WordPress-blue disc with a white W and a small green corner dot when you're logged in to a WP site, the same blue disc without the dot when you're logged out, and a muted slate disc for non-WordPress pages. The full-bleed background keeps the icon legible against any browser chrome, Safari included.
 - **Site icon in the popup header** — When a site has a WordPress Site Icon configured (Customize → Site Identity), it appears next to the hostname in the popup header for fast visual identification.
 - **Edit this page** — Jump straight to the editor for posts, pages, categories, tags, authors, and custom post types — including hyphenated CPT slugs like `case-study`. On block themes, template-backed pages such as the blog index and archives open in the site editor. Keyboard shortcut: `Alt+Shift+E` (`Option+Shift+E` on Mac), customizable at `chrome://extensions/shortcuts`.
 - **View / Preview from the editor** — On wp-admin edit screens, see the published page or preview a draft (with nonce) in one click. Works for all post types.
