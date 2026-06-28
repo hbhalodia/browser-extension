@@ -391,5 +391,25 @@
   "post_type_navigation_menu": {
     "message": "Navigation Menu",
     "description": "Display name for the 'wp_navigation' post type"
+  },
+  "my_sites_label": {
+    "message": "My Sites",
+    "description": "Header for the saved-sites launcher section"
+  },
+  "my_sites_edit": {
+    "message": "Edit",
+    "description": "Toggle that reveals rename/remove controls in the My Sites list"
+  },
+  "my_sites_done": {
+    "message": "Done",
+    "description": "Toggle that exits edit mode in the My Sites list"
+  },
+  "my_sites_remove": {
+    "message": "Remove site",
+    "description": "Button that removes a site from the My Sites list"
+  },
+  "my_sites_rename_placeholder": {
+    "message": "Custom name",
+    "description": "Placeholder/label for the rename field in the My Sites list"
   }
 }

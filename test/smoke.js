@@ -22,6 +22,7 @@ const path = require('path');
 const detectSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'detect.js'), 'utf8');
 const restSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'rest.js'),   'utf8');
 const hostSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'host.js'),   'utf8');
+const mySitesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'my-sites.js'), 'utf8');
 
 function loadModules(dom) {
   const ctx = dom.window;
@@ -30,6 +31,7 @@ function loadModules(dom) {
   new Function('globalThis', 'document', 'window', detectSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', restSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', hostSrc)(ctx, ctx.document, ctx);
+  new Function('globalThis', 'document', 'window', mySitesSrc)(ctx, ctx.document, ctx);
   return ctx;
 }
 
@@ -867,6 +869,50 @@ async function main() {
 
     // Unsupported page type → null (caller does not gate).
     assert(canEditCurrent({ pageType: 'archive' }, editor) === null, 'archive has no edit decision');
+  }
+
+  // --- 23. My Sites store helpers ---------------------------------------
+  {
+    console.log('\n[23] WPMySites store helpers (add on login / curation / sort)');
+    const dom = new JSDOM('<html><body></body></html>');
+    const { WPMySites } = loadModules(dom);
+    const A = 'https://acme.com', B = 'https://blog.example.com', C = 'https://shop.example.com';
+    const listed = (store) => WPMySites.listSites(store).map((s) => s.origin);
+
+    // Fresh login adds; second login bumps recency, not a duplicate.
+    let store = {};
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: false, now: 100 });
+    assert(!!store[A], 'fresh login adds the site');
+    assert(store[A].addedAt === 100 && store[A].lastLoggedInAt === 100, 'timestamps set on add');
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 200 });
+    assert(Object.keys(store).length === 1 && store[A].lastLoggedInAt === 200, 'revisit bumps recency, no dupe');
+
+    // Already-logged-in site (no transition) still gets added when absent.
+    store = WPMySites.upsertOnLogin(store, { origin: C, baseUrl: C, wasLoggedIn: true, now: 250 });
+    assert(listed(store).includes(C), 'already-logged-in absent site is added regardless of transition');
+
+    // Remove tombstones (hidden, not deleted) so still-logged-in browsing
+    // does NOT silently re-add it.
+    store = WPMySites.removeSite(store, A);
+    assert(store[A] && store[A].dismissed === true, 'remove tombstones the record');
+    assert(!listed(store).includes(A), 'removed site is hidden from the list');
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 300 });
+    assert(!listed(store).includes(A), 'still-logged-in browsing does not re-add a removed site');
+    // A genuine logged-out → logged-in transition un-dismisses it.
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: false, now: 400 });
+    assert(listed(store).includes(A), 'fresh login transition re-adds a removed site');
+
+    // Sort: newest login first.
+    store = WPMySites.upsertOnLogin(store, { origin: B, baseUrl: B, wasLoggedIn: false, now: 500 });
+    assert(listed(store)[0] === B, 'listSites sorts by lastLoggedInAt desc');
+
+    // Rename + display label, set and clear.
+    assert(WPMySites.displayName(store[A]) === 'acme.com', 'default label is the hostname (www-stripped)');
+    store = WPMySites.renameSite(store, A, '  Acme — Staging  ');
+    assert(store[A].customName === 'Acme — Staging', 'rename trims and sets customName');
+    assert(WPMySites.displayName(store[A]) === 'Acme — Staging', 'custom name wins for the label');
+    store = WPMySites.renameSite(store, A, '   ');
+    assert(store[A].customName === undefined, 'blank rename clears the custom name');
   }
 
   console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' failure(s).'}`);

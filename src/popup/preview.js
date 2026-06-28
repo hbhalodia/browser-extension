@@ -8,8 +8,18 @@ import { DetectedView } from './components/DetectedView';
 import { NotWordPressView } from './components/NotWordPressView';
 import { NotSupportedView } from './components/NotSupportedView';
 import { LoadingView } from './components/LoadingView';
+import { MySites } from './components/MySites';
 import './popup.scss';
 import enMessages from '../../_locales/en/messages.json';
+// Side-effect: installs window.WPMySites (the classic-script store helpers the
+// popup reads), so the My Sites section renders in the dev preview too.
+import '../../lib/my-sites.js';
+
+// Canned "My Sites" list for the preview, keyed exactly like the real store.
+const PREVIEW_MY_SITES = {
+	'https://acme.com': { origin: 'https://acme.com', baseUrl: 'https://acme.com', addedAt: 1, lastLoggedInAt: 3 },
+	'https://shop.example.com': { origin: 'https://shop.example.com', baseUrl: 'https://shop.example.com', addedAt: 1, lastLoggedInAt: 2, customName: 'Client Store — Staging' },
+};
 
 // Faithful-enough chrome.i18n.getMessage shim for the dev preview (the real
 // API only exists in the extension runtime). Resolves named placeholders
@@ -75,7 +85,13 @@ window.chrome = {
 		},
 	},
 	runtime: { sendMessage: async () => null },
-	storage: { local: { get: async () => ({}), set: async () => {} } },
+	storage: {
+		local: {
+			get: async (key) => (key === 'wp_my_sites_v1' ? { wp_my_sites_v1: PREVIEW_MY_SITES } : {}),
+			set: async () => {},
+		},
+		onChanged: { addListener: () => {}, removeListener: () => {} },
+	},
 	scripting: { executeScript: async () => [{ result: 'fake-nonce' }] },
 	i18n: { getMessage: previewGetMessage },
 };
@@ -203,6 +219,11 @@ const fixtures = [
 		id: 'loading',
 		label: 'Loading',
 		render: () => <LoadingView />,
+	},
+	{
+		id: 'my-sites',
+		label: 'My Sites launcher',
+		render: () => <MySites />,
 	},
 ];
 
