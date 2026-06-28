@@ -26,11 +26,15 @@ const HOST_NAMES = {
 	kinsta: 'Kinsta',
 	flywheel: 'Flywheel',
 	cloudways: 'Cloudways',
-	local: 'Local Dev',
 };
 
 export function HostBadge({ host }) {
-	const name = HOST_NAMES[host] || host;
+	// Provider names are brands (left untranslated); "Local Dev" is the one
+	// descriptive label, so it's localized — resolved here at render time
+	// (chrome.i18n isn't safe to call at module load, esp. in the preview).
+	const name =
+		HOST_NAMES[host] ||
+		(host === 'local' ? chrome.i18n.getMessage('host_local_dev') /* "Local Dev" */ : host);
 
 	if (WP_MARK_HOSTS.has(host)) {
 		return (

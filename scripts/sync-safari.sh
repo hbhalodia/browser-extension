@@ -20,18 +20,23 @@ fi
 
 # Wipe sub-folders so deletes in source propagate; top-level files are
 # overwritten below so the DEST listing matches source exactly.
-rm -rf "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons"
+rm -rf "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons" "$DEST/_locales"
 mkdir -p "$DEST/lib" "$DEST/popup" "$DEST/options" "$DEST/dist" "$DEST/icons"
 
 cp "$ROOT/manifest.json" "$DEST/"
 cp "$ROOT/background.js" "$DEST/"
 cp "$ROOT/content.js"    "$DEST/"
 
+# i18n message catalogs — the manifest's __MSG_*__ name/description and every
+# chrome.i18n.getMessage() call resolve against these, so Safari needs them too.
+cp -R "$ROOT/_locales" "$DEST/_locales"
+
 cp "$ROOT/lib/early.js"            "$DEST/lib/"
 cp "$ROOT/lib/detect.js"           "$DEST/lib/"
 cp "$ROOT/lib/rest.js"             "$DEST/lib/"
 cp "$ROOT/lib/host.js"             "$DEST/lib/"
 cp "$ROOT/lib/block-inspector.js"  "$DEST/lib/"
+cp "$ROOT/lib/my-sites.js"         "$DEST/lib/"
 
 cp "$ROOT/popup/popup.html" "$DEST/popup/"
 
@@ -42,11 +47,12 @@ cp "$ROOT/options/options.js"   "$DEST/options/"
 cp "$ROOT/dist/popup.css" "$DEST/dist/"
 cp "$ROOT/dist/popup.js"  "$DEST/dist/"
 
-# Safari Web Extensions template-render toolbar icons — Safari ignores
-# the icon's own colors and paints the alpha shape with the system tint.
-# The colored icons in icons/*.png are designed for Chrome, where full
-# color is preserved; the silhouette versions in icons/template/*.png
-# are what Safari's tinting expects.
-cp "$ROOT/icons/template"/*.png "$DEST/icons/"
+# One full-color icon set ships to both browsers. Safari only template-tints
+# an icon it reads as monochrome; a genuinely-colored icon renders as-is (the
+# opt-out — see #15/#26), so the same icons/*.png that Chrome uses keep all
+# three states distinct in Safari too. (Do NOT reintroduce a monochrome/
+# silhouette set for Safari — it collapses logged-in and logged-out to one
+# tinted W.)
+cp "$ROOT/icons"/*.png "$DEST/icons/"
 
 echo "Synced runtime files → $DEST"

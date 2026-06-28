@@ -5,16 +5,28 @@ import { ErrorView } from './components/ErrorView';
 import { NotSupportedView } from './components/NotSupportedView';
 import { NotWordPressView } from './components/NotWordPressView';
 import { DetectedView } from './components/DetectedView';
+import { MySites } from './components/MySites';
 
 export function App() {
 	const state = useDetection();
 	useScrollGapFix();
 
-	if (state.status === 'loading') return <LoadingView />;
-	if (state.status === 'error') return <ErrorView />;
-	if (state.status === 'unsupported') return <NotSupportedView />;
-	if (state.status === 'not-wordpress') return <NotWordPressView hostname={state.hostname} />;
-	return <DetectedView result={state.result} host={state.host} />;
+	let view;
+	if (state.status === 'loading') view = <LoadingView />;
+	else if (state.status === 'error') view = <ErrorView />;
+	else if (state.status === 'unsupported') view = <NotSupportedView />;
+	else if (state.status === 'not-wordpress') view = <NotWordPressView hostname={state.hostname} />;
+	else view = <DetectedView result={state.result} host={state.host} />;
+
+	// "My Sites" is a global launcher — independent of the current tab, so it
+	// renders under every view (including non-WP / internal pages). It hides
+	// itself when the list is empty.
+	return (
+		<>
+			{view}
+			<MySites />
+		</>
+	);
 }
 
 /**

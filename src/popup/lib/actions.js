@@ -5,7 +5,12 @@
  * open mobile preview, etc.).
  */
 
-export async function runAction(action, { origin, url, editUrl, viewUrl, logoutUrl, newTab = false }) {
+export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl, logoutUrl, newTab = false }) {
+	// Path-aware install base for synthesized links (carries any subdirectory
+	// prefix — issue #33). Callers that predate it pass only `origin`; fall
+	// back to that for root installs. `origin` is still used below for the
+	// same-origin security checks on DOM-sourced hrefs and for cookie scoping.
+	const base = baseUrl || origin;
 	let target;
 	switch (action) {
 		case 'edit':
@@ -15,19 +20,19 @@ export async function runAction(action, { origin, url, editUrl, viewUrl, logoutU
 			target = viewUrl || null;
 			break;
 		case 'visit-site':
-			target = `${origin}/`;
+			target = `${base}/`;
 			break;
 		case 'admin':
-			target = `${origin}/wp-admin/`;
+			target = `${base}/wp-admin/`;
 			break;
 		case 'profile':
-			target = `${origin}/wp-admin/profile.php`;
+			target = `${base}/wp-admin/profile.php`;
 			break;
 		case 'login':
-			target = `${origin}/wp-login.php`;
+			target = `${base}/wp-login.php`;
 			break;
 		case 'login-return':
-			target = `${origin}/wp-login.php?redirect_to=${encodeURIComponent(url)}`;
+			target = `${base}/wp-login.php?redirect_to=${encodeURIComponent(url)}`;
 			break;
 		// Prefer the admin bar's logout link — it carries the `_wpnonce` that
 		// makes WP skip its "are you sure?" confirmation. (We do our own
@@ -42,7 +47,7 @@ export async function runAction(action, { origin, url, editUrl, viewUrl, logoutU
 					if (new URL(logoutUrl).origin === origin) safeLogout = logoutUrl;
 				} catch (_) { /* malformed URL */ }
 			}
-			target = safeLogout || `${origin}/wp-login.php?action=logout`;
+			target = safeLogout || `${base}/wp-login.php?action=logout`;
 			break;
 		}
 		case 'cachebust': {
@@ -71,6 +76,23 @@ export async function runAction(action, { origin, url, editUrl, viewUrl, logoutU
 		await chrome.tabs.update({ url: target });
 	}
 	window.close();
+}
+
+/**
+ * True when a click on an action row should open its target in a new tab,
+ * mirroring the gesture people already use on the WordPress admin bar (#29):
+ * a middle-click, Cmd-click on macOS, or Ctrl-click elsewhere.
+ *
+ * Platform-aware on purpose: on macOS Ctrl+click is a context-menu gesture,
+ * not new-tab, so we only honor the Meta (Cmd) key there. Shift (new window)
+ * is intentionally unmapped — the popup only ever opens tabs.
+ */
+export function isNewTabIntent(event) {
+	if (!event) return false;
+	if (event.button === 1) return true; // middle-click
+	const isMac =
+		typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
+	return isMac ? !!event.metaKey : !!event.ctrlKey;
 }
 
 export async function copyToClipboard(text) {
@@ -168,7 +190,7 @@ export async function requestRestEditUrl() {
  * Returns { nonce, tab } so callers can reuse the tab handle without
  * re-querying.
  */
-async function resolveRestNonce() {
+async function resolveRestNonce(baseUrl = null) {
 	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 	let nonce = null;
 	try {
@@ -197,8 +219,10 @@ async function resolveRestNonce() {
 
 	if (!nonce) {
 		try {
-			const origin = new URL(tab.url).origin;
-			const res = await fetch(`${origin}/wp-admin/profile.php`, {
+			// Subdirectory installs serve wp-admin under a prefix (#33), so
+			// prefer the path-aware base when the caller supplies it.
+			const base = baseUrl || new URL(tab.url).origin;
+			const res = await fetch(`${base}/wp-admin/profile.php`, {
 				credentials: 'include',
 				redirect: 'follow',
 			});
@@ -219,9 +243,9 @@ async function resolveRestNonce() {
  * because /wp/v2/themes and /wp/v2/templates are private endpoints. Falls
  * back to a null result the popup treats as "not resolvable."
  */
-export async function requestTemplateEditUrl() {
+export async function requestTemplateEditUrl(baseUrl = null) {
 	try {
-		const { tab, nonce } = await resolveRestNonce();
+		const { tab, nonce } = await resolveRestNonce(baseUrl);
 		const res = await chrome.tabs.sendMessage(tab.id, { type: 'RESOLVE_TEMPLATE_EDIT_URL', nonce });
 		return res || { url: null, isBlockTheme: null };
 	} catch (_) {
@@ -229,9 +253,9 @@ export async function requestTemplateEditUrl() {
 	}
 }
 
-export async function requestSiteInfo() {
+export async function requestSiteInfo(baseUrl = null) {
 	try {
-		const { tab, nonce } = await resolveRestNonce();
+		const { tab, nonce } = await resolveRestNonce(baseUrl);
 		const res = await chrome.tabs.sendMessage(tab.id, { type: 'GET_SITE_INFO', nonce });
 		return res || null;
 	} catch (_) {
@@ -239,9 +263,16 @@ export async function requestSiteInfo() {
 	}
 }
 
-export async function requestCurrentUser() {
+export async function requestCurrentUser(baseUrl = null) {
 	try {
-		const { tab, nonce } = await resolveRestNonce();
+		const { tab, nonce } = await resolveRestNonce(baseUrl);
+		// users/me?context=edit needs a valid REST nonce — cookie auth without
+		// one is always rejected with a 401. Skip the doomed request when no
+		// nonce could be resolved (common on logged-in frontends that don't
+		// enqueue wp-api-fetch, e.g. wordpress.org). The popup's capability
+		// gates are DOM-first and don't depend on this; the fetch only enriches
+		// the role label / caps when a nonce is actually available.
+		if (!nonce) return null;
 		const res = await chrome.tabs.sendMessage(tab.id, { type: 'GET_CURRENT_USER', nonce });
 		return res?.user || null;
 	} catch (_) {

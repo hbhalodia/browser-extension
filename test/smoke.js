@@ -22,6 +22,7 @@ const path = require('path');
 const detectSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'detect.js'), 'utf8');
 const restSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'rest.js'),   'utf8');
 const hostSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'host.js'),   'utf8');
+const mySitesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'my-sites.js'), 'utf8');
 
 function loadModules(dom) {
   const ctx = dom.window;
@@ -30,6 +31,7 @@ function loadModules(dom) {
   new Function('globalThis', 'document', 'window', detectSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', restSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', hostSrc)(ctx, ctx.document, ctx);
+  new Function('globalThis', 'document', 'window', mySitesSrc)(ctx, ctx.document, ctx);
   return ctx;
 }
 
@@ -715,7 +717,7 @@ async function main() {
 
   // --- 22. Template-backed views — candidate slugs ----------------------
   {
-    console.log('\n[22] templateCandidates — hierarchy per page type');
+    console.log('\n[24] templateCandidates — hierarchy per page type');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const cand = ctx.WPRest.templateCandidates;
@@ -738,7 +740,7 @@ async function main() {
 
   // --- 23. pickTemplate matches the most specific registered slug --------
   {
-    console.log('\n[23] pickTemplate — most specific registered template wins');
+    console.log('\n[25] pickTemplate — most specific registered template wins');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const pick = ctx.WPRest.pickTemplate;
@@ -768,7 +770,7 @@ async function main() {
 
   // --- 24. buildSiteEditorUrl encodes the template id -------------------
   {
-    console.log('\n[24] buildSiteEditorUrl — site editor deep link');
+    console.log('\n[26] buildSiteEditorUrl — site editor deep link');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const build = ctx.WPRest.buildSiteEditorUrl;
@@ -782,7 +784,7 @@ async function main() {
 
   // --- 25. resolveTemplateEditUrlAsync — block vs classic theme ---------
   {
-    console.log('\n[25] resolveTemplateEditUrlAsync — full block-theme resolution');
+    console.log('\n[27] resolveTemplateEditUrlAsync — full block-theme resolution');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
@@ -865,6 +867,61 @@ async function main() {
       'term page short-circuits — no REST calls made');
   }
 
+  // --- 22. Subdirectory install — base URL derivation (issue #33) -------
+  {
+    console.log('\n[22] Subdirectory install base URL + admin link resolution');
+
+    // deriveBaseUrl across the URL shapes WordPress emits.
+    const dom = new JSDOM(`<html><body></body></html>`);
+    const ctx = loadModules(dom);
+    const derive = ctx.WPDetect.deriveBaseUrl;
+
+    assert(
+      derive('https://example.com', 'https://example.com/wordpress/wp-json/')
+        === 'https://example.com/wordpress',
+      'pretty permalinks: /wordpress/wp-json/ → /wordpress base');
+    assert(
+      derive('https://example.com', 'https://example.com/wordpress/?rest_route=/')
+        === 'https://example.com/wordpress',
+      'plain permalinks: /wordpress/?rest_route=/ → /wordpress base');
+    assert(
+      derive('https://example.com', 'https://example.com/wp-json/')
+        === 'https://example.com',
+      'root install: /wp-json/ → bare origin');
+    assert(
+      derive('https://example.com', 'https://example.com/?rest_route=/')
+        === 'https://example.com',
+      'root install, plain permalinks → bare origin');
+    assert(
+      derive('https://example.com', 'https://attacker.example/wp-json/')
+        === 'https://example.com',
+      'off-origin REST root ignored → falls back to origin');
+    assert(
+      derive('https://example.com', null) === 'https://example.com',
+      'missing REST root → falls back to origin');
+
+    // End-to-end: a subdir install's detection context carries the base,
+    // and the sync edit-URL resolver builds links under it.
+    const dom2 = new JSDOM(`
+      <html><head>
+        <link rel="https://api.w.org/" href="https://example.com/wordpress/wp-json/">
+      </head><body class="single single-post postid-55 logged-in admin-bar"></body></html>
+    `, { url: 'https://example.com/wordpress/hello-world/' });
+    const ctx2 = loadModules(dom2);
+    const det2 = ctx2.WPDetect.detectWordPress(ctx2.document, { origin: 'https://example.com' });
+    assert(det2.context.baseUrl === 'https://example.com/wordpress',
+      `context.baseUrl carries the subdirectory (got ${det2.context.baseUrl})`);
+    const editUrl = ctx2.WPRest.resolveEditUrlSync(det2.context, 'https://example.com');
+    assert(editUrl === 'https://example.com/wordpress/wp-admin/post.php?post=55&action=edit',
+      `sync edit URL is subdirectory-aware: ${editUrl}`);
+
+    // Same-origin admin guard accepts /wp-admin/ under a subdirectory.
+    assert(
+      ctx2.WPRest.isSameOriginAdminUrl(
+        'https://example.com/wordpress/wp-admin/post-new.php', 'https://example.com') === true,
+      'isSameOriginAdminUrl accepts subdirectory /wp-admin/');
+  }
+
   // --- 12. Not a WordPress site -----------------------------------------
   {
     console.log('\n[12] Non-WordPress page');
@@ -873,6 +930,141 @@ async function main() {
     const det = ctx.WPDetect.detectWordPress(ctx.document);
     assert(det.isWordPress === false, 'isWordPress=false');
     assert(det.confidence === 0, 'confidence=0');
+  }
+
+  // --- 13. Capability gating for Edit / WordPress Admin -----------------
+  {
+    console.log('\n[13] WPRest.canAccessAdmin / canEditCurrent capability gates');
+    const dom = new JSDOM('<html><body></body></html>');
+    const ctx = loadModules(dom);
+    const { canAccessAdmin, canEditCurrent } = ctx.WPRest;
+
+    const subscriber = { capabilities: { read: true, subscriber: true } };
+    const contributor = { capabilities: { read: true, edit_posts: true } };
+    const editor = {
+      capabilities: {
+        read: true, edit_posts: true, edit_pages: true,
+        edit_others_posts: true, manage_categories: true,
+      },
+    };
+    const admin = { capabilities: { ...editor.capabilities, edit_users: true } };
+
+    // --- canAccessAdmin: caps path — gates on meaningful (editing) access,
+    //     not bare `read`, so a subscriber-tier account is disabled.
+    const noBar = { isLoggedIn: true, hasAdminBar: true };
+    assert(canAccessAdmin(noBar, subscriber) === false, 'subscriber (read only) → admin disabled');
+    assert(canAccessAdmin(noBar, contributor) === true, 'contributor → admin enabled');
+    assert(canAccessAdmin(noBar, editor) === true, 'editor → admin enabled');
+    assert(canAccessAdmin({}, null) === null, 'no caps, no admin bar → null (do not gate)');
+    assert(canAccessAdmin({}, {}) === null, 'caps map absent + no DOM signal → null');
+
+    // --- canAccessAdmin: DOM-first path (no caps / REST 401). The admin bar
+    //     WordPress rendered is the signal.
+    const barWithNew = { isLoggedIn: true, hasAdminBar: true, newContentItems: [{ id: 'post' }] };
+    const barBare = { isLoggedIn: true, hasAdminBar: true, newContentItems: [] };
+    assert(canAccessAdmin(barWithNew, null) === true, 'no caps but "+ New" menu → admin enabled');
+    assert(canAccessAdmin(barBare, null) === false, 'no caps, bare admin bar → admin disabled');
+
+    // --- canEditCurrent: caps path -------------------------------------
+    // Single page — requires edit_pages.
+    const pageCtx = { pageType: 'single', postType: 'page' };
+    assert(canEditCurrent(pageCtx, subscriber) === false, 'subscriber cannot edit a page');
+    assert(canEditCurrent(pageCtx, contributor) === false, 'contributor cannot edit a page');
+    assert(canEditCurrent(pageCtx, editor) === true, 'editor can edit a page');
+
+    // Single post — requires the edit_posts family.
+    const postCtx = { pageType: 'single', postType: 'post' };
+    assert(canEditCurrent(postCtx, subscriber) === false, 'subscriber cannot edit a post');
+    assert(canEditCurrent(postCtx, contributor) === true, 'contributor can edit a post (no bar to read → caps fallback)');
+
+    // Per-object beats general caps: the same contributor on a published post
+    // they don't own (admin bar rendered, no Edit link) is gated even though
+    // their edit_posts cap is set — WP already ran current_user_can for the bar.
+    assert(
+      canEditCurrent(
+        { pageType: 'single', postType: 'post', isLoggedIn: true, hasAdminBar: true },
+        contributor,
+      ) === false,
+      'contributor on a non-editable single post (bar shown, no edit link) → disabled despite caps',
+    );
+
+    // Author archive — admin-only (edit_users).
+    const authorCtx = { pageType: 'author', authorId: 7 };
+    assert(canEditCurrent(authorCtx, editor) === false, 'editor cannot edit a user');
+    assert(canEditCurrent(authorCtx, admin) === true, 'admin can edit a user');
+
+    // Term archive — requires manage_categories.
+    const termCtx = { pageType: 'term', taxonomy: 'category', termId: 3 };
+    assert(canEditCurrent(termCtx, contributor) === false, 'contributor cannot edit a term');
+    assert(canEditCurrent(termCtx, editor) === true, 'editor can edit a term');
+
+    // Authoritative admin-bar Edit link short-circuits the heuristic.
+    assert(
+      canEditCurrent({ ...pageCtx, adminBarEditHref: 'https://x/wp-admin/post.php?post=1&action=edit' }, subscriber) === true,
+      'admin-bar Edit link is trusted even when caps would gate',
+    );
+
+    // --- canEditCurrent: DOM-first path (no caps / REST 401). This is the
+    //     wordpress.org case: logged in, admin bar shown, no edit link.
+    assert(
+      canEditCurrent({ pageType: 'single', postType: 'post', postId: 28583, isLoggedIn: true, hasAdminBar: true }, null) === false,
+      'no caps + admin bar present + no edit link on a single post → edit disabled',
+    );
+    assert(
+      canEditCurrent({ pageType: 'single', postType: 'post', isLoggedIn: true, hasAdminBar: false }, null) === null,
+      'admin bar hidden → unknown (do not gate)',
+    );
+    assert(
+      canEditCurrent({ pageType: 'term', taxonomy: 'category', isLoggedIn: true, hasAdminBar: true }, null) === null,
+      'no caps on a term archive stays unknown (bar edit link is unreliable there)',
+    );
+
+    // Unsupported page type → null (caller does not gate).
+    assert(canEditCurrent({ pageType: 'archive' }, editor) === null, 'archive has no edit decision');
+  }
+
+  // --- 23. My Sites store helpers ---------------------------------------
+  {
+    console.log('\n[23] WPMySites store helpers (add on login / curation / sort)');
+    const dom = new JSDOM('<html><body></body></html>');
+    const { WPMySites } = loadModules(dom);
+    const A = 'https://acme.com', B = 'https://blog.example.com', C = 'https://shop.example.com';
+    const listed = (store) => WPMySites.listSites(store).map((s) => s.origin);
+
+    // Fresh login adds; second login bumps recency, not a duplicate.
+    let store = {};
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: false, now: 100 });
+    assert(!!store[A], 'fresh login adds the site');
+    assert(store[A].addedAt === 100 && store[A].lastLoggedInAt === 100, 'timestamps set on add');
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 200 });
+    assert(Object.keys(store).length === 1 && store[A].lastLoggedInAt === 200, 'revisit bumps recency, no dupe');
+
+    // Already-logged-in site (no transition) still gets added when absent.
+    store = WPMySites.upsertOnLogin(store, { origin: C, baseUrl: C, wasLoggedIn: true, now: 250 });
+    assert(listed(store).includes(C), 'already-logged-in absent site is added regardless of transition');
+
+    // Remove tombstones (hidden, not deleted) so still-logged-in browsing
+    // does NOT silently re-add it.
+    store = WPMySites.removeSite(store, A);
+    assert(store[A] && store[A].dismissed === true, 'remove tombstones the record');
+    assert(!listed(store).includes(A), 'removed site is hidden from the list');
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: true, now: 300 });
+    assert(!listed(store).includes(A), 'still-logged-in browsing does not re-add a removed site');
+    // A genuine logged-out → logged-in transition un-dismisses it.
+    store = WPMySites.upsertOnLogin(store, { origin: A, baseUrl: A, wasLoggedIn: false, now: 400 });
+    assert(listed(store).includes(A), 'fresh login transition re-adds a removed site');
+
+    // Sort: newest login first.
+    store = WPMySites.upsertOnLogin(store, { origin: B, baseUrl: B, wasLoggedIn: false, now: 500 });
+    assert(listed(store)[0] === B, 'listSites sorts by lastLoggedInAt desc');
+
+    // Rename + display label, set and clear.
+    assert(WPMySites.displayName(store[A]) === 'acme.com', 'default label is the hostname (www-stripped)');
+    store = WPMySites.renameSite(store, A, '  Acme — Staging  ');
+    assert(store[A].customName === 'Acme — Staging', 'rename trims and sets customName');
+    assert(WPMySites.displayName(store[A]) === 'Acme — Staging', 'custom name wins for the label');
+    store = WPMySites.renameSite(store, A, '   ');
+    assert(store[A].customName === undefined, 'blank rename clears the custom name');
   }
 
   console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' failure(s).'}`);

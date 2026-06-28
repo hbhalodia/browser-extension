@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '@wordpress/ui';
 import { copy, external, check } from '@wordpress/icons';
-import { copyToClipboard } from '../lib/actions';
+import { copyToClipboard, isNewTabIntent } from '../lib/actions';
 
 /**
  * Card-style action row: a bordered container with a primary button (icon +
@@ -31,6 +31,23 @@ export function ActionRow({
 		}
 	};
 
+	// Route Cmd/Ctrl/middle-clicks to the row's new-tab target so the popup
+	// honors the same "open in a new tab" gesture as a real link (#29). Plain
+	// clicks and keyboard activation (Enter/Space, which carry no modifier and
+	// button 0) fall through to the primary action. Rows without a new-tab
+	// target treat the gesture as inert rather than firing a side effect.
+	const handleMainActivate = (event) => {
+		if (isNewTabIntent(event)) {
+			event.preventDefault();
+			if (onNewTab) onNewTab();
+			return;
+		}
+		// onAuxClick also fires for the right mouse button; only a primary
+		// activation should run the action.
+		if (event.type === 'auxclick') return;
+		onClick?.(event);
+	};
+
 	const showHint = !loading && hint;
 	const hintContent = loading ? <span className="wpd-card__hint">…</span> : null;
 
@@ -40,7 +57,8 @@ export function ActionRow({
 				type="button"
 				className="wpd-card__main"
 				disabled={disabled || loading}
-				onClick={onClick}
+				onClick={handleMainActivate}
+				onAuxClick={onNewTab ? handleMainActivate : undefined}
 			>
 				{icon && (
 					<span className="wpd-card__icon" aria-hidden="true">
@@ -59,8 +77,8 @@ export function ActionRow({
 							className={`wpd-card__aux-btn ${copied ? 'is-copied' : ''}`}
 							onClick={handleCopy}
 							disabled={disabled}
-							aria-label={copied ? 'Copied' : 'Copy URL'}
-							title={copied ? 'Copied' : 'Copy URL'}
+							aria-label={copied ? chrome.i18n.getMessage('copied_label') /* "Copied" */ : chrome.i18n.getMessage('copy_url_label') /* "Copy URL" */}
+							title={copied ? chrome.i18n.getMessage('copied_label') /* "Copied" */ : chrome.i18n.getMessage('copy_url_label') /* "Copy URL" */}
 						>
 							<Icon icon={copied ? check : copy} size={16} />
 						</button>
@@ -71,8 +89,8 @@ export function ActionRow({
 							className="wpd-card__aux-btn"
 							onClick={onNewTab}
 							disabled={disabled}
-							aria-label="Open in new tab"
-							title="Open in new tab"
+							aria-label={chrome.i18n.getMessage('open_new_tab_label') /* "Open in new tab" */}
+							title={chrome.i18n.getMessage('open_new_tab_label') /* "Open in new tab" */}
 						>
 							<Icon icon={external} size={16} />
 						</button>

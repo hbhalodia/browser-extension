@@ -10,6 +10,7 @@ export function Header({
 	wpVersion = null,
 	loggedIn = false,
 	origin = null,
+	baseUrl = null,
 	url = null,
 	updateCount = null,
 	commentCount = null,
@@ -19,10 +20,13 @@ export function Header({
 	userEditProfileHref = null,
 	isSuperAdmin = false,
 	logoutUrl = null,
+	user = null,
 	onOpen,
 }) {
 	const hasStatus = (updateCount && updateCount > 0) || (commentCount && commentCount > 0);
 	const showMeta = host || wpVersion;
+	// Carries any subdirectory prefix for synthesized admin links (#33).
+	const base = baseUrl || origin;
 	return (
 		<header className="wpd-header">
 			<div className="wpd-header__top">
@@ -44,10 +48,12 @@ export function Header({
 						avatarUrl={userAvatarUrl}
 						displayName={userDisplayName}
 						origin={origin}
+						baseUrl={base}
 						url={url}
 						logoutUrl={logoutUrl}
 						editProfileUrl={userEditProfileHref}
 						isSuperAdmin={isSuperAdmin}
+						user={user}
 					/>
 				)}
 			</div>
@@ -62,18 +68,18 @@ export function Header({
 					{updateCount > 0 && (
 						<StatusBadge
 							icon={update}
-							label={`${updateCount} ${updateCount === 1 ? 'update' : 'updates'}`}
+							label={chrome.i18n.getMessage(updateCount === 1 ? 'update_singular' : 'update_plural', [String(updateCount)]) /* "1 update" / "N updates" */}
 							intent="medium"
-							onClick={() => onOpen?.(`${origin}/wp-admin/update-core.php`)}
+							onClick={() => onOpen?.(`${base}/wp-admin/update-core.php`)}
 						/>
 					)}
 					{commentCount > 0 && (
 						<StatusBadge
 							icon={postComments}
-							label={`${commentCount} pending ${commentCount === 1 ? 'comment' : 'comments'}`}
+							label={chrome.i18n.getMessage(commentCount === 1 ? 'pending_comment_singular' : 'pending_comment_plural', [String(commentCount)]) /* "1 pending comment" / "N pending comments" */}
 							intent="informational"
 							onClick={() =>
-								onOpen?.(`${origin}/wp-admin/edit-comments.php?comment_status=moderated`)
+								onOpen?.(`${base}/wp-admin/edit-comments.php?comment_status=moderated`)
 							}
 						/>
 					)}

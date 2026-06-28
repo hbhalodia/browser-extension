@@ -56,6 +56,7 @@ Smoke tests cover the vanilla `lib/*.js` modules. Test before opening a PR.
 - **Permissions**. Every entry in `manifest.json`'s `permissions` and `host_permissions` is an Issue-level discussion before being added. The principle is least privilege; users install browser extensions on the trust that they ask for what they need and nothing more.
 - **JS**. ES2020+ syntax; no transpilation needed for non-popup code (Chrome and Safari both support it). Prefer plain modules over framework where possible — React is reserved for popup UI.
 - **Comments**. Explain WHY, not WHAT. Inline rationale for non-obvious decisions; don't narrate the obvious.
+- **Strings / i18n**. User-facing text is localized via the Chrome i18n API. Don't hardcode display strings: add a key to `_locales/en/messages.json` (with a `description` for translators) and read it with `chrome.i18n.getMessage('key')`, or `__MSG_key__` in `manifest.json`. English is the source/default locale; other locales are optional community contributions that fall back to English per-key, so the UI never breaks when a translation lags or a new string lands. The dev preview shims `getMessage` from the English catalog.
 
 ### Pull requests
 

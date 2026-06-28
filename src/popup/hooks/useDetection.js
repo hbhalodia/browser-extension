@@ -153,7 +153,9 @@ export function useDetection() {
 								try {
 									const u = new URL(a.href);
 									if (u.origin !== location.origin) return null;
-									if (!/^\/wp-admin\//.test(u.pathname)) return null;
+									// Subdir installs serve /wp-admin/ under a prefix
+									// (e.g. /wordpress/wp-admin/) — match anywhere (#33).
+									if (!/\/wp-admin\//.test(u.pathname)) return null;
 								} catch (_) { return null; }
 								return { id, label, href: a.href };
 							}).filter(Boolean);
@@ -230,6 +232,8 @@ export function useDetection() {
 					tabId: tab.id,
 					isWordPress: true,
 					isLoggedIn: !!result.detection.context.isLoggedIn,
+					baseUrl: result.detection.context.baseUrl || null,
+					siteIconUrl: result.detection.context.siteIconUrl || null,
 				}).catch(() => {});
 
 				// Render now with what we have. The fresh-fetch below can take

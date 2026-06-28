@@ -12,7 +12,9 @@ import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
  * data are merged only after that fetch settles so counts and pills do not
  * jump while loading (see #5).
  */
-export function SiteInfoPanel({ ctx, origin, onOpen }) {
+export function SiteInfoPanel({ ctx, origin, baseUrl, onOpen }) {
+	// Carries any subdirectory prefix for synthesized admin links (#33).
+	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			themeSlug: ctx.themeSlug || null,
 		};
 		setLoading(true);
-		requestSiteInfo()
+		requestSiteInfo(base)
 			.then((res) => {
 				setData(res);
 			})
@@ -77,7 +79,7 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 			<Collapsible.Trigger className="wpd-siteinfo__trigger">
 				<span className="wpd-siteinfo__label-group">
 					<Icon icon={infoIcon} size={16} />
-					<span className="wpd-siteinfo__label">Site Information</span>
+					<span className="wpd-siteinfo__label">{chrome.i18n.getMessage('site_info_label') /* "Site Information" */}</span>
 				</span>
 				<span
 					className={`wpd-siteinfo__chevron ${open ? 'is-open' : ''}`}
@@ -90,13 +92,13 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 				<div className="wpd-siteinfo__body">
 					{loading && (
 						<p className="wpd-siteinfo__hint wpd-siteinfo__hint--loading" aria-live="polite">
-							Loading site information…
+							{chrome.i18n.getMessage('site_info_loading') /* "Loading site information…" */}
 						</p>
 					)}
 
 					{!loading && themeInfo && (
-						<InfoGroup label="Active theme">
-							<ThemeRow theme={themeInfo} origin={origin} onOpen={onOpen} />
+						<InfoGroup label={chrome.i18n.getMessage('active_theme_label') /* "Active theme" */}>
+							<ThemeRow theme={themeInfo} origin={base} onOpen={onOpen} />
 						</InfoGroup>
 					)}
 
@@ -111,14 +113,14 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 							)}
 							{attempted && !plugins && pluginRows.length > 0 && (
 								<p className="wpd-siteinfo__hint">
-									Log in for a comprehensive list of plugins with additional information.
+									{chrome.i18n.getMessage('login_for_plugin_list') /* "Log in for a comprehensive list of plugins with additional information." */}
 								</p>
 							)}
 						</InfoGroup>
 					)}
 
 					{!loading && attempted && !hasAnything && (
-						<p className="wpd-siteinfo__hint">Nothing extra we could detect.</p>
+						<p className="wpd-siteinfo__hint">{chrome.i18n.getMessage('nothing_detected') /* "Nothing extra we could detect." */}</p>
 					)}
 				</div>
 			</Collapsible.Panel>
@@ -128,12 +130,12 @@ export function SiteInfoPanel({ ctx, origin, onOpen }) {
 
 function pluginsPluginLabel(plugins, count) {
 	if (plugins) {
-		return `Plugins (${count})`;
+		return chrome.i18n.getMessage('plugins_with_count', [String(count)]); // "Plugins (N)"
 	}
 	if (count > 0) {
-		return `Detected plugins (${count})`;
+		return chrome.i18n.getMessage('detected_plugins_with_count', [String(count)]); // "Detected plugins (N)"
 	}
-	return 'Plugins';
+	return chrome.i18n.getMessage('plugins_label'); // "Plugins"
 }
 
 function InfoGroup({ label, children }) {
@@ -166,7 +168,7 @@ function ThemeRow({ theme, origin, onOpen }) {
 						{theme.author && <span>by {stripTags(theme.author)}</span>}
 					</>
 				) : (
-					<span>Log in for additional information.</span>
+					<span>{chrome.i18n.getMessage('login_for_info') /* "Log in for additional information." */}</span>
 				)}
 			</div>
 		</div>

@@ -7,7 +7,12 @@
  *   - Purge origins unvisited for longer than PURGE_AFTER
  *   - Update the toolbar icon to reflect WP detection per tab
  *   - Serve cached detection to the popup
+ *   - Maintain the user's "My Sites" list (auto-add on fresh login)
  */
+
+// Pure My Sites store helpers, attached to globalThis.WPMySites — shared with
+// the popup, which loads the same file as a classic script.
+importScripts('lib/my-sites.js');
 
 const CACHE_KEY = 'wp_detection_cache_v1';
 const REFRESH_INTERVAL      = 7 * 24 * 60 * 60 * 1000;  // 1 week
@@ -48,6 +53,24 @@ async function purgeStale() {
     }
   }
   if (changed) await writeCache(cache);
+}
+
+// --- My Sites: persistent list of WP installs the user logs into ----------
+
+// Record a logged-in WordPress site, applying the curation rule in
+// lib/my-sites.js. `wasLoggedIn` is the prior cached login state for this
+// origin, so a site the user removed isn't silently re-added while they keep
+// browsing it logged in — only a fresh logged-out→logged-in transition does.
+async function recordLogin(origin, baseUrl, iconUrl, wasLoggedIn) {
+  if (!origin) return;
+  const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
+  const store = data[WPMySites.STORE_KEY] || {};
+  const next = WPMySites.upsertOnLogin(store, {
+    origin, baseUrl: baseUrl || null, iconUrl: iconUrl || null, wasLoggedIn, now: Date.now(),
+  });
+  if (next !== store) {
+    await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
+  }
 }
 
 // --- Detection handling ---------------------------------------------------
@@ -106,10 +129,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handlePopupResolution(msg) {
-  const { origin, tabId, isLoggedIn, isWordPress } = msg;
+  const { origin, tabId, isLoggedIn, isWordPress, baseUrl, siteIconUrl } = msg;
   if (!origin) return;
   const cache = await getCache();
   const existing = cache[origin] || null;
+  const wasLoggedIn = existing?.isLoggedIn === true; // capture before mutating
   if (existing) {
     existing.isLoggedIn = !!isLoggedIn;
     existing.lastSeen = Date.now();
@@ -117,6 +141,11 @@ async function handlePopupResolution(msg) {
     await writeCache(cache);
   }
   if (tabId) await updateToolbar(tabId, !!isWordPress, { isLoggedIn });
+
+  // Catches cookie-API logins the page DOM missed (logged-out HTML).
+  if (isWordPress && isLoggedIn) {
+    await recordLogin(origin, baseUrl, siteIconUrl, wasLoggedIn);
+  }
 }
 
 async function handleDetection(msg, sender) {
@@ -180,9 +209,29 @@ async function handleDetection(msg, sender) {
   cache[origin] = entry;
   await writeCache(cache);
   await updateToolbar(sender.tab.id, entry.isWordPress, detection.context);
+
+  // Add to "My Sites" on a logged-in WordPress install. `existing?.isLoggedIn`
+  // is the prior state, so a removed site isn't re-added while still browsing.
+  if (entry.isWordPress && entry.isLoggedIn) {
+    await recordLogin(
+      origin,
+      detection.context?.baseUrl,
+      detection.context?.siteIconUrl,
+      existing?.isLoggedIn === true,
+    );
+  }
 }
 
 // --- Toolbar icon + title -------------------------------------------------
+
+// chrome.action.setIcon resolves its promise even when the target tab has
+// closed or navigated away — it reports the failure as an unchecked
+// chrome.runtime.lastError instead, so an awaited try/catch never catches it
+// and it surfaces a red "Errors" badge on the extension card. (setTitle does
+// reject and could be awaited, but both use the callback form so each consumes
+// its own lastError.) updateToolbar runs on every tabs.onUpdated tick, exactly
+// when a tab can vanish mid-navigation; a missing tab here is expected.
+const ignoreLastError = () => void chrome.runtime.lastError;
 
 async function updateToolbar(tabId, isWordPress, context) {
   // Three states: not WP (gray + slash), WP but not logged in (gray),
@@ -192,22 +241,18 @@ async function updateToolbar(tabId, isWordPress, context) {
   const variant = !isWordPress ? '-inactive'
     : context?.isLoggedIn ? '-active'
     : '';
-  try {
-    await chrome.action.setIcon({
-      tabId,
-      path: {
-        16: `icons/icon-16${variant}.png`,
-        32: `icons/icon-32${variant}.png`,
-      },
-    });
-  } catch (_) { /* icons not shipped yet */ }
+  chrome.action.setIcon({
+    tabId,
+    path: {
+      16: `icons/icon-16${variant}.png`,
+      32: `icons/icon-32${variant}.png`,
+    },
+  }, ignoreLastError);
 
   const title = isWordPress
-    ? `WordPress detected${context?.isLoggedIn ? ' — logged in' : ''}`
-    : 'WordPress Browser Extension';
-  try {
-    await chrome.action.setTitle({ tabId, title });
-  } catch (_) { /* tab may have closed */ }
+    ? chrome.i18n.getMessage(context?.isLoggedIn ? 'toolbar_title_detected_logged_in' : 'toolbar_title_detected') // "WordPress detected — logged in" / "WordPress detected"
+    : chrome.i18n.getMessage('toolbar_title_default'); // "WordPress Browser Extension"
+  chrome.action.setTitle({ tabId, title }, ignoreLastError);
 }
 
 // --- Keyboard shortcut: edit this page ------------------------------------
@@ -229,6 +274,9 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!ctx.isLoggedIn) return;
 
   const origin = result.origin;
+  // Path-aware base so synthesized admin URLs respect a subdirectory
+  // install (issue #33); falls back to the origin for root installs.
+  const base = ctx.baseUrl || origin;
 
   // Try sync resolution first (covers most cases).
   // resolveEditUrlSync isn't available here (it's in lib/rest.js, loaded
@@ -241,13 +289,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (!editUrl && ctx.postId && ctx.pageType === 'single') {
-    editUrl = `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
+    editUrl = `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
   }
   if (!editUrl && ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-    editUrl = `${origin}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
+    editUrl = `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
   }
   if (!editUrl && ctx.pageType === 'author' && ctx.authorId) {
-    editUrl = `${origin}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
+    editUrl = `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
   }
 
   // If sync didn't resolve, try the REST fallback via content script.
@@ -259,7 +307,13 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (editUrl) {
-    chrome.tabs.update(tab.id, { url: editUrl });
+    // Await + guard: the active tab can close or navigate between resolving
+    // the edit URL (which may involve an async REST round-trip above) and this
+    // navigation. A fire-and-forget update against a gone tab surfaces an
+    // "Unchecked runtime.lastError: No tab with id" in the service worker.
+    try {
+      await chrome.tabs.update(tab.id, { url: editUrl });
+    } catch (_) { /* tab closed before we could navigate it */ }
   }
 });
 

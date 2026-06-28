@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Popover, VisuallyHidden } from '@wordpress/ui';
 import { people, login, image } from '@wordpress/icons';
-import { runAction, requestCurrentUser } from '../lib/actions';
+import { runAction } from '../lib/actions';
 
 /**
  * Circular avatar button in the header's top-right. Opens a small popover
@@ -14,25 +14,21 @@ import { runAction, requestCurrentUser } from '../lib/actions';
  * the destructive logout uses a regular button so its two-click confirm
  * can live inside the open popover.
  */
-export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editProfileUrl, isSuperAdmin = false }) {
+export function UserMenu({ avatarUrl, displayName, origin, baseUrl, url, logoutUrl, editProfileUrl, isSuperAdmin = false, user = null }) {
+	// Path-aware base for synthesized admin links (carries any subdirectory
+	// prefix — issue #33); falls back to the origin for root installs.
+	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
 	const [confirmingLogout, setConfirmingLogout] = useState(false);
-	const [restRole, setRestRole] = useState(null);
 	const confirmTimerRef = useRef(null);
 
-	// Pre-fetch the role on mount so the dropdown opens with the label
-	// already in place. Skipped for super admins — the DOM-derived "Super
-	// Admin" badge takes priority and a per-site role would be misleading.
-	useEffect(() => {
-		if (isSuperAdmin) return;
-		let cancelled = false;
-		requestCurrentUser().then((user) => {
-			if (cancelled) return;
-			const label = roleLabelFromUser(user);
-			if (label) setRestRole(label);
-		});
-		return () => { cancelled = true; };
-	}, [isSuperAdmin]);
+	// The current user is fetched once by DetectedView and passed down. Derive
+	// the role label from it. Skipped for super admins — the DOM-derived
+	// "Super Admin" badge takes priority and a per-site role would mislead.
+	const restRole = useMemo(
+		() => (isSuperAdmin ? null : roleLabelFromUser(user)),
+		[isSuperAdmin, user],
+	);
 
 	useEffect(() => {
 		if (!open) {
@@ -45,10 +41,12 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 
 	// Super admin wins. On multisite a super admin's per-site role is
 	// commonly just 'subscriber', so REST would mislabel them.
-	const roleLabel = isSuperAdmin ? 'Super Admin' : restRole;
+	const roleLabel = isSuperAdmin ? chrome.i18n.getMessage('super_admin_role') /* "Super Admin" */ : restRole;
 
-	const profileUrl = safeProfileUrl(editProfileUrl, origin);
-	const buttonLabel = displayName ? `Account menu for ${displayName}` : 'Account menu';
+	const profileUrl = safeProfileUrl(editProfileUrl, origin, base);
+	const buttonLabel = displayName
+		? chrome.i18n.getMessage('account_menu_for_user', [displayName]) // "Account menu for {name}"
+		: chrome.i18n.getMessage('account_menu_label'); // "Account menu"
 	// Admin bar avatars from gravatar.com carry the user's hash in the path.
 	// Custom-avatar plugins (User Profile Picture, etc.) point at an upload
 	// on the site's own host and won't match — we hide the menu item then.
@@ -64,7 +62,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 		}
 		clearTimeout(confirmTimerRef.current);
 		setOpen(false);
-		runAction('signout', { origin, url, logoutUrl });
+		runAction('signout', { origin, baseUrl: base, url, logoutUrl });
 	};
 
 	return (
@@ -97,7 +95,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 				sideOffset={8}
 			>
 				<VisuallyHidden>
-					<Popover.Title>Account menu</Popover.Title>
+					<Popover.Title>{chrome.i18n.getMessage('account_menu_label') /* "Account menu" */}</Popover.Title>
 				</VisuallyHidden>
 				<div className="wpd-user-menu__dropdown" role="menu">
 					{displayName && (
@@ -110,7 +108,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 					)}
 					<MenuLink
 						icon={people}
-						label="Profile"
+						label={chrome.i18n.getMessage('profile_menu_item') /* "Profile" */}
 						onClick={() => {
 							chrome.tabs.update({ url: profileUrl });
 							window.close();
@@ -119,7 +117,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 					{gravatarProfileUrl && (
 						<MenuLink
 							icon={image}
-							label="Gravatar"
+							label={chrome.i18n.getMessage('gravatar_menu_item') /* "Gravatar" */}
 							onClick={() => {
 								chrome.tabs.create({ url: gravatarProfileUrl });
 								window.close();
@@ -136,7 +134,7 @@ export function UserMenu({ avatarUrl, displayName, origin, url, logoutUrl, editP
 							<Icon icon={login} size={16} />
 						</span>
 						<span className="wpd-user-menu__item-label">
-							{confirmingLogout ? 'Click again to confirm' : 'Log Out'}
+							{confirmingLogout ? chrome.i18n.getMessage('confirm_click_button') /* "Click again to confirm" */ : chrome.i18n.getMessage('log_out_button') /* "Log Out" */}
 						</span>
 					</button>
 				</div>
@@ -216,8 +214,8 @@ function extractGravatarHash(avatarUrl) {
 	}
 }
 
-function safeProfileUrl(editProfileUrl, origin) {
-	const fallback = `${origin}/wp-admin/profile.php`;
+function safeProfileUrl(editProfileUrl, origin, base = origin) {
+	const fallback = `${base}/wp-admin/profile.php`;
 	if (typeof editProfileUrl !== 'string' || !editProfileUrl) return fallback;
 	try {
 		const u = new URL(editProfileUrl);

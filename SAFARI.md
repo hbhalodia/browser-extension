@@ -44,12 +44,38 @@ runtime file into that folder, so re-run it whenever `manifest.json`,
 `background.js`, `content.js`, `lib/*`, `popup/popup.html`, `options/*`,
 or any icon changes.
 
-If new top-level files or folders are added to the runtime (e.g. a new
-`options/` folder shipped in v0.9), they also have to be registered in
-the Xcode project file (`WordPress Browser Extension.xcodeproj/project.pbxproj`)
-as a folder reference. Open the project in Xcode, drag the folder into
-the Resources group, and choose "Create folder references" so future
-files inside it sync automatically.
+If new top-level files or folders are added to the runtime (e.g. the
+`options/` folder in v0.9, or `_locales/` for i18n), they also have to be
+registered in the Xcode project file
+(`WordPress Browser Extension.xcodeproj/project.pbxproj`) as a folder
+reference. Open the project in Xcode, drag the folder into the Resources
+group, and choose "Create folder references" so future files inside it sync
+automatically. **A missed registration is silent**: `sync-safari.sh` still
+copies the folder into `Resources/`, but Xcode won't bundle it, so the built
+extension ships without it — e.g. an unregistered `_locales/` left the
+manifest's `__MSG_*` name unresolved and Safari dropped the extension with no
+error. Files added inside an already-registered folder (e.g. another
+`lib/*.js`) need no project change.
+
+## Toolbar icon
+
+The toolbar icon ships as a single full-color set (`icons/icon-*.png`, rendered
+from `icons/src/*.svg` by `scripts/render-icons.js`) used by both Chrome and
+Safari. Safari template-renders a toolbar icon — paints its alpha shape with the
+system color and discards the icon's own colors — *only* when it reads the icon
+as monochrome (a black/grayscale shape on transparency). An icon carrying
+genuine color is rendered as-is. This is the opt-out extensions like 1Password
+rely on, and it keeps all three states distinct in Safari:
+
+- **WordPress, logged in** — blue disc, white W, green corner dot.
+- **WordPress, logged out** — blue disc, white W.
+- **Not WordPress / default** — muted slate disc, white W (no slash).
+
+Because the monochrome check is unreliable for near-grayscale darks, the muted
+"not WordPress" state is a clearly-saturated slate (`#2c3e50`), not a near-gray —
+a too-desaturated fill can still be flattened to a tinted blob. **Don't
+reintroduce a monochrome/silhouette icon set for Safari**; it re-collapses the
+logged-in and logged-out states to a single tinted W (see #15).
 
 ## Known issues
 

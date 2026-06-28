@@ -23,6 +23,7 @@
 		23E1696B2FB90D4D00B58EF4 /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 23E169642FB90D4D00B58EF4 /* icons */; };
 		23E1696C2FB90D4D00B58EF4 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 23E169652FB90D4D00B58EF4 /* manifest.json */; };
 		23E1696D2FB90D4D00B58EF4 /* lib in Resources */ = {isa = PBXBuildFile; fileRef = 23E169662FB90D4D00B58EF4 /* lib */; };
+		23E169702FB90D4D00B58EF4 /* _locales in Resources */ = {isa = PBXBuildFile; fileRef = 23E1696F2FB90D4D00B58EF4 /* _locales */; };
 		23E1696E2FB90D4D00B58EF4 /* content.js in Resources */ = {isa = PBXBuildFile; fileRef = 23E169672FB90D4D00B58EF4 /* content.js */; };
 		23E16A022FB90D4D00B58EF4 /* options in Resources */ = {isa = PBXBuildFile; fileRef = 23E16A012FB90D4D00B58EF4 /* options */; };
 /* End PBXBuildFile section */
@@ -71,6 +72,7 @@
 		23E169642FB90D4D00B58EF4 /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; name = icons; path = Resources/icons; sourceTree = "<group>"; };
 		23E169652FB90D4D00B58EF4 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = Resources/manifest.json; sourceTree = "<group>"; };
 		23E169662FB90D4D00B58EF4 /* lib */ = {isa = PBXFileReference; lastKnownFileType = folder; name = lib; path = Resources/lib; sourceTree = "<group>"; };
+		23E1696F2FB90D4D00B58EF4 /* _locales */ = {isa = PBXFileReference; lastKnownFileType = folder; name = _locales; path = Resources/_locales; sourceTree = "<group>"; };
 		23E169672FB90D4D00B58EF4 /* content.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = content.js; path = Resources/content.js; sourceTree = "<group>"; };
 		23E16A012FB90D4D00B58EF4 /* options */ = {isa = PBXFileReference; lastKnownFileType = folder; name = options; path = Resources/options; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -156,6 +158,7 @@
 				23E169662FB90D4D00B58EF4 /* lib */,
 				23E169672FB90D4D00B58EF4 /* content.js */,
 				23E16A012FB90D4D00B58EF4 /* options */,
+				23E1696F2FB90D4D00B58EF4 /* _locales */,
 			);
 			name = Resources;
 			path = "WordPress Browser Extension Extension";
@@ -268,6 +271,7 @@
 				23E1696E2FB90D4D00B58EF4 /* content.js in Resources */,
 				23E169682FB90D4D00B58EF4 /* popup in Resources */,
 				23E16A022FB90D4D00B58EF4 /* options in Resources */,
+				23E169702FB90D4D00B58EF4 /* _locales in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
