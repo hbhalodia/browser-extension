@@ -2,23 +2,18 @@
 /**
  * Renders the W-mark SVG variants to the PNG icon sets the manifest expects.
  *
- * Two sets are produced:
+ *   icons/src/wmark.svg          → icons/icon-{16,32,48,128}.png   (WP, logged out)
+ *   icons/src/wmark-active.svg   → icons/icon-{16,32}-active.png    (WP, logged in — green dot)
+ *   icons/src/wmark-inactive.svg → icons/icon-{16,32}-inactive.png  (not WP / default — muted)
  *
- *   icons/src/wmark.svg          → icons/icon-{16,32,48,128}.png
- *   icons/src/wmark-active.svg   → icons/icon-{16,32}-active.png
- *   icons/src/wmark-inactive.svg → icons/icon-{16,32}-inactive.png
- *     Full-color (WP blue / dark gray circle, white W). Used by Chrome
- *     so the icon stays legible against any toolbar chrome.
- *
- *   icons/src/template/wmark.svg          → icons/template/icon-{16,32,48,128}.png
- *   icons/src/template/wmark-active.svg   → icons/template/icon-{16,32}-active.png
- *   icons/src/template/wmark-inactive.svg → icons/template/icon-{16,32}-inactive.png
- *     Silhouette (transparent background, single-color W mark). Used by
- *     Safari, which template-renders extension toolbar icons — i.e.
- *     ignores the icon's own colors and paints the alpha shape with the
- *     system tint. A silhouette is what Safari's tinting expects; the
- *     full-color version gets flattened to a single tint and loses the
- *     state distinction.
+ * One full-color set ships to BOTH Chrome and Safari. Safari template-renders
+ * a toolbar icon — tints its alpha shape with the system color and drops the
+ * icon's own colors — ONLY when it reads the icon as monochrome (a black/
+ * grayscale shape on transparency). An icon carrying genuine color is rendered
+ * as-is; this is the opt-out extensions like 1Password rely on (see #15 / #26),
+ * and it's why every state uses a saturated fill — note the muted "not WP"
+ * state is a clearly-saturated slate (#2c3e50), not a near-gray that Safari
+ * could still flatten to a tinted blob.
  *
  * Run with: node scripts/render-icons.js
  */
@@ -53,11 +48,6 @@ async function renderSet({ srcDir, outDir, label }) {
 	await renderSet({
 		srcDir: path.join(ROOT, 'icons', 'src'),
 		outDir: path.join(ROOT, 'icons'),
-		label: 'color   ',
-	});
-	await renderSet({
-		srcDir: path.join(ROOT, 'icons', 'src', 'template'),
-		outDir: path.join(ROOT, 'icons', 'template'),
-		label: 'template',
+		label: 'icon',
 	});
 })();
