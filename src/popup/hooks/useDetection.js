@@ -47,17 +47,15 @@ export function useDetection() {
 				const url = new URL(tab.url);
 				const origin = url.origin;
 
-				let result = null;
-				try {
-					result = await chrome.tabs.sendMessage(tab.id, { type: 'GET_LIVE_DETECTION' });
-				} catch (_) {
-					/* content script unreachable */
-				}
-
-				const cached = await chrome.runtime.sendMessage({
-					type: 'GET_CACHED_DETECTION',
-					origin,
-				});
+				// Live (content script) and cached (background) detection are
+				// independent, so fetch them together rather than in series to shave a
+				// message round-trip off first paint. Live rejects when the content
+				// script is not injected yet; treat that as null.
+				const [liveResult, cached] = await Promise.all([
+					chrome.tabs.sendMessage(tab.id, { type: 'GET_LIVE_DETECTION' }).catch(() => null),
+					chrome.runtime.sendMessage({ type: 'GET_CACHED_DETECTION', origin }),
+				]);
+				let result = liveResult;
 
 				if (!result && cached && cached.isWordPress) {
 					result = {

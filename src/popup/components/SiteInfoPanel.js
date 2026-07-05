@@ -190,12 +190,24 @@ function ThemeRow({ theme, origin, onOpen }) {
 	);
 }
 
+// Only trust an http(s) URL. A plugin_uri comes from the REST response, so a
+// hostile site could otherwise hand us a javascript:/data: URI to open.
+function httpUrlOrNull(value) {
+	if (!value) return null;
+	try {
+		const p = new URL(value).protocol;
+		return p === 'http:' || p === 'https:' ? value : null;
+	} catch (_) {
+		return null;
+	}
+}
+
 function PluginPill({ plugin, onOpen }) {
 	const label = plugin.name || plugin.slug;
-	// Prefer the plugin's own homepage URL when REST gave us one. Otherwise
-	// fall back to the wp.org plugin directory — works for hosted plugins
-	// and 404s gracefully for premium/custom ones.
-	const href = plugin.pluginUri || `https://wordpress.org/plugins/${plugin.slug}/`;
+	// Prefer the plugin's own homepage URL when REST gave us a safe one.
+	// Otherwise fall back to the wp.org plugin directory — works for hosted
+	// plugins and 404s gracefully for premium/custom ones.
+	const href = httpUrlOrNull(plugin.pluginUri) || `https://wordpress.org/plugins/${plugin.slug}/`;
 	const tooltip = plugin.version ? `${label} ${plugin.version}` : label;
 	return (
 		<button

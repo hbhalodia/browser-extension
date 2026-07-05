@@ -50,37 +50,37 @@
   let hideStyle = document.getElementById('wp-detective-adminbar-hide');
   let removedClasses = [];
 
-  async function loadAdminBarPref() {
-    try {
-      const data = await chrome.storage.local.get('wp_preferences_v1');
-      const prefsRoot = data.wp_preferences_v1 || {};
-      const prefs = prefsRoot[location.origin];
-      const globalPrefs = prefsRoot._global || {};
-      // Per-origin choice wins; otherwise consult the global "hide by
-      // default" option set on the options page; otherwise default to shown.
-      if (prefs && typeof prefs.adminBarHidden === 'boolean') {
-        return prefs.adminBarHidden === true;
-      }
-      return globalPrefs.adminBarHidden === true;
-    } catch (_) {
-      return false;
+  // The admin-bar and block-inspector paths both read wp_preferences_v1; share
+  // one storage round trip per page load instead of two-to-three.
+  let prefsRootPromise = null;
+  function loadPrefsRoot() {
+    if (!prefsRootPromise) {
+      prefsRootPromise = chrome.storage.local
+        .get('wp_preferences_v1')
+        .then((data) => data.wp_preferences_v1 || {})
+        .catch(() => ({}));
     }
+    return prefsRootPromise;
+  }
+
+  async function loadAdminBarPref() {
+    const prefsRoot = await loadPrefsRoot();
+    const prefs = prefsRoot[location.origin];
+    const globalPrefs = prefsRoot._global || {};
+    // Per-origin choice wins; otherwise consult the global "hide by
+    // default" option set on the options page; otherwise default to shown.
+    if (prefs && typeof prefs.adminBarHidden === 'boolean') {
+      return prefs.adminBarHidden === true;
+    }
+    return globalPrefs.adminBarHidden === true;
   }
 
   function applyHide() {
     if (!hideStyle) {
       hideStyle = document.createElement('style');
       hideStyle.id = 'wp-detective-adminbar-hide';
-      hideStyle.textContent = `
-        /*
-         * Admin bar hidden by the WordPress Browser Extension.
-         * Toggle "Show Admin Bar" in the extension popup to restore it on
-         * this site, or change the default in the extension options page.
-         */
-        #wpadminbar { display: none !important; }
-        html { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
-        html.admin-bar, html.wp-toolbar { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
-      `;
+      // Shared rule set defined once in early.js (same content-script world).
+      hideStyle.textContent = globalThis.WPDAdminBarHideCSS || '';
       document.documentElement.appendChild(hideStyle);
       console.info(chrome.i18n.getMessage('admin_bar_hidden_notice')); // "[WordPress Browser Extension] Admin bar hidden on this site. Toggle "Show Admin Bar" in the extension popup or the options page."
     }
@@ -126,13 +126,8 @@
   const blockInspectorSupported = !isWpAdmin;
 
   async function loadBlockInspectorPref() {
-    try {
-      const data = await chrome.storage.local.get('wp_preferences_v1');
-      const prefs = (data.wp_preferences_v1 || {})[location.origin];
-      return !!(prefs && prefs.blockInspectorEnabled);
-    } catch (_) {
-      return false;
-    }
+    const prefs = (await loadPrefsRoot())[location.origin];
+    return !!(prefs && prefs.blockInspectorEnabled);
   }
 
   function applyBlockInspector(enabled) {
@@ -151,7 +146,9 @@
     }
   }
 
-  if (blockInspectorSupported) {
+  // Gate the pref read on actual WordPress detection so non-WP pages don't pay
+  // a storage round trip for a WordPress-only feature.
+  if (blockInspectorSupported && detection.isWordPress) {
     loadBlockInspectorPref().then((enabled) => {
       if (enabled) applyBlockInspector(true);
     });
