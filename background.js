@@ -19,45 +19,64 @@ importScripts('lib/my-sites.js');
 // admin-URL priority chain and its same-origin guard.
 importScripts('lib/rest.js');
 
-const CACHE_KEY = 'wp_detection_cache_v1';
+// Detection results are cached one storage key per origin (wp_cache_<origin>)
+// rather than a single blob, so a page load reads and writes only its own
+// origin's entry instead of the whole browsing history, and concurrent writes
+// to different origins can't clobber each other.
+const CACHE_PREFIX = 'wp_cache_';
+// Pre-0.10.1 single-blob cache; discarded once on upgrade (see wipeLegacyCache).
+const LEGACY_CACHE_KEY = 'wp_detection_cache_v1';
 const REFRESH_INTERVAL      = 7 * 24 * 60 * 60 * 1000;  // 1 week
 const PURGE_AFTER           = 28 * 24 * 60 * 60 * 1000;  // 4 weeks
 const HOST_REFRESH_INTERVAL = 90 * 24 * 60 * 60 * 1000;  // 90 days
 
-// --- Cache helpers --------------------------------------------------------
+// --- Cache helpers (one storage key per origin) ---------------------------
 
-async function getCache() {
-  const data = await chrome.storage.local.get(CACHE_KEY);
-  return data[CACHE_KEY] || {};
-}
-
-async function writeCache(cache) {
-  await chrome.storage.local.set({ [CACHE_KEY]: cache });
+// Keep this prefix in sync with lib/early.js, which reads its origin's entry
+// directly at document_start.
+function cacheKey(origin) {
+  return CACHE_PREFIX + origin;
 }
 
 async function getEntry(origin) {
-  const cache = await getCache();
-  return cache[origin] || null;
+  const key = cacheKey(origin);
+  const data = await chrome.storage.local.get(key);
+  return data[key] || null;
 }
 
-async function upsertEntry(origin, entry) {
-  const cache = await getCache();
-  cache[origin] = entry;
-  await writeCache(cache);
+async function putEntry(origin, entry) {
+  await chrome.storage.local.set({ [cacheKey(origin)]: entry });
+}
+
+// Reads every per-origin entry as { origin: entry }. Cold paths only (startup
+// repaint, purge) — never per page load.
+async function getAllEntries() {
+  const all = await chrome.storage.local.get(null);
+  const entries = {};
+  for (const key of Object.keys(all)) {
+    if (key.startsWith(CACHE_PREFIX)) entries[key.slice(CACHE_PREFIX.length)] = all[key];
+  }
+  return entries;
 }
 
 async function purgeStale() {
-  const cache = await getCache();
+  const all = await chrome.storage.local.get(null);
   const now = Date.now();
-  let changed = false;
-  for (const origin of Object.keys(cache)) {
-    const entry = cache[origin];
-    if (!entry || !entry.lastSeen || now - entry.lastSeen > PURGE_AFTER) {
-      delete cache[origin];
-      changed = true;
-    }
+  const stale = [];
+  for (const key of Object.keys(all)) {
+    if (!key.startsWith(CACHE_PREFIX)) continue;
+    const entry = all[key];
+    if (!entry || !entry.lastSeen || now - entry.lastSeen > PURGE_AFTER) stale.push(key);
   }
-  if (changed) await writeCache(cache);
+  if (stale.length) await chrome.storage.local.remove(stale);
+}
+
+// One-time discard of the pre-0.10.1 single-blob cache. Nothing writes that key
+// anymore, so removing it once is permanent. My Sites and preferences live
+// under separate keys and are untouched; dropped detection results rebuild as
+// the user browses.
+async function wipeLegacyCache() {
+  await chrome.storage.local.remove(LEGACY_CACHE_KEY);
 }
 
 // --- My Sites: persistent list of WP installs the user logs into ----------
@@ -84,6 +103,7 @@ chrome.runtime.onStartup.addListener(onLoad);
 chrome.runtime.onInstalled.addListener(onLoad);
 
 async function onLoad() {
+  await wipeLegacyCache();
   await purgeStale();
   await repaintAllTabs();
 }
@@ -95,12 +115,12 @@ async function onLoad() {
 async function repaintAllTabs() {
   let tabs;
   try { tabs = await chrome.tabs.query({}); } catch (_) { return; }
-  const cache = await getCache();
+  const entries = await getAllEntries();
   for (const tab of tabs) {
     if (!tab.id || !tab.url || !/^https?:/.test(tab.url)) continue;
     try {
       const origin = new URL(tab.url).origin;
-      const entry = cache[origin];
+      const entry = entries[origin];
       await updateToolbar(
         tab.id,
         entry?.isWordPress || false,
@@ -163,14 +183,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function handlePopupResolution(msg) {
   const { origin, tabId, isLoggedIn, isWordPress, baseUrl, siteIconUrl } = msg;
   if (!origin) return;
-  const cache = await getCache();
-  const existing = cache[origin] || null;
+  const existing = await getEntry(origin);
   const wasLoggedIn = existing?.isLoggedIn === true; // capture before mutating
   if (existing) {
     existing.isLoggedIn = !!isLoggedIn;
     existing.lastSeen = Date.now();
-    cache[origin] = existing;
-    await writeCache(cache);
+    await putEntry(origin, existing);
   }
   if (tabId) await updateToolbar(tabId, !!isWordPress, { isLoggedIn });
 
@@ -187,8 +205,7 @@ async function handleDetection(msg, sender) {
   const origin = originFromSender(sender);
   if (!origin) return;
   const now = Date.now();
-  const cache = await getCache();
-  const existing = cache[origin] || null;
+  const existing = await getEntry(origin);
 
   // Decide whether to trust this detection or the cache.
   // - If the current page strongly suggests WP, use it.
@@ -242,8 +259,7 @@ async function handleDetection(msg, sender) {
     } catch (_) { /* content script gone */ }
   }
 
-  cache[origin] = entry;
-  await writeCache(cache);
+  await putEntry(origin, entry);
   await updateToolbar(sender.tab.id, entry.isWordPress, detection.context);
 
   // Add to "My Sites" on a logged-in WordPress install. `existing?.isLoggedIn`
