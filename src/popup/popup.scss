@@ -628,7 +628,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: var(--wpd-gap);
-	padding: 0 var(--wpd-pad-x) 12px;
+	padding: 10px var(--wpd-pad-x) 12px;
 }
 
 /* Developer tools — plain collapsible (not a card) --------------------- */
@@ -913,7 +913,7 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: var(--wpd-gap);
-	padding: 0 var(--wpd-pad-x) 14px;
+	padding: 10px var(--wpd-pad-x) 14px;
 }
 
 /* Info row (admin bar disabled hint) ----------------------------------- */
