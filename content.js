@@ -12,6 +12,12 @@
 
   if (!document.body || !document.documentElement) return;
 
+  // Abort timeout for same-origin fetches issued from the content script. The
+  // HEAD host probe is awaited by the background worker (which holds the cache
+  // snapshot and message channel open meanwhile), so a hung server must not
+  // stall it indefinitely. AbortSignal.timeout: Chrome 103+ / Safari 16+.
+  const FETCH_TIMEOUT_MS = 10000;
+
   // -- Detection + reporting -----------------------------------------------
 
   const detection = globalThis.WPDetect.detectWordPress(document, { origin: location.origin });
@@ -186,6 +192,7 @@
         credentials: 'include',
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
         .then(async (res) => {
           if (!res.ok) return sendResponse({ detection: null });
@@ -222,7 +229,11 @@
 
     if (msg.type === 'RESOLVE_HOST_HEADERS') {
       // Same-origin HEAD request — cookies flow, no CORS, minimal payload.
-      fetch(location.href, { method: 'HEAD', credentials: 'include' })
+      fetch(location.href, {
+        method: 'HEAD',
+        credentials: 'include',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      })
         .then((res) => {
           const host = globalThis.WPHost.detectHostFromHeaders(res.headers);
           sendResponse({ host });

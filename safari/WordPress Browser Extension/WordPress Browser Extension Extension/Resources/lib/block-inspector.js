@@ -316,13 +316,28 @@
   // -------------------------------------------------------- REST enrichment
 
   // Matches both paired and self-closing block comments. Attrs are an
-  // optional JSON object captured with a non-greedy pattern; the `s` flag
-  // lets it span newlines.
+  // optional JSON object captured with a non-greedy pattern ([\s\S] spans
+  // newlines without needing the `s` flag).
+  //
+  // Whitespace is matched by exactly ONE `\s*` run before the close: the
+  // optional attrs group carries its own leading `\s+` guarded by the
+  // required `{`, so it either commits to a real attribute object or matches
+  // nothing — it never shares a whitespace run with the tail. An earlier
+  // form had three adjacent `\s*`/`\s+` matchers around the optional groups,
+  // so a long unterminated `<!-- wp:name` + whitespace made the engine
+  // explore every partition of that run looking for a `-->` that never came
+  // (catastrophic backtracking / ReDoS). A single tail matcher keeps it O(n).
   const BLOCK_COMMENT_RE =
-    /<!--\s+(\/)?wp:([a-z][a-z0-9_-]*(?:\/[a-z][a-z0-9_-]*)?)\s*(\{[\s\S]*?\})?\s*(\/)?\s*-->/g;
+    /<!--\s+(\/)?wp:([a-z][a-z0-9_-]*(?:\/[a-z][a-z0-9_-]*)?)(?:\s+(\{[\s\S]*?\}))?\s*(\/)?-->/g;
+
+  // Defensive ceiling: real post_content is never this large and the regex
+  // above is linear, but bounding the input keeps block-comment parsing O(n)
+  // even against a deliberately pathological payload.
+  const MAX_BLOCK_HTML = 2 * 1024 * 1024;
 
   function parseBlockComments(html) {
     const root = { children: [] };
+    if (typeof html !== 'string' || html.length > MAX_BLOCK_HTML) return root.children;
     const stack = [root];
     let m;
     BLOCK_COMMENT_RE.lastIndex = 0;

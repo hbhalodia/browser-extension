@@ -14,6 +14,11 @@
 // the popup, which loads the same file as a classic script.
 importScripts('lib/my-sites.js');
 
+// REST helpers (globalThis.WPRest). The edit-this-page keyboard shortcut reuses
+// resolveEditUrlSync from here rather than maintaining a second copy of the
+// admin-URL priority chain and its same-origin guard.
+importScripts('lib/rest.js');
+
 const CACHE_KEY = 'wp_detection_cache_v1';
 const REFRESH_INTERVAL      = 7 * 24 * 60 * 60 * 1000;  // 1 week
 const PURGE_AFTER           = 28 * 24 * 60 * 60 * 1000;  // 4 weeks
@@ -105,25 +110,52 @@ async function repaintAllTabs() {
   }
 }
 
+// Origin as attested by the browser rather than taken from the message body:
+// sender.origin when present, else the sender tab's URL. Page JS can't forge
+// either, so cache and My Sites writes key off this instead of a spoofable
+// msg.origin.
+function originFromSender(sender) {
+  if (sender && sender.origin) return sender.origin;
+  try {
+    return sender && sender.tab && sender.tab.url ? new URL(sender.tab.url).origin : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
 
   if (msg.type === 'WP_DETECTION') {
     if (!sender.tab) return; // only accept from content scripts
-    handleDetection(msg, sender).then(() => sendResponse({ ok: true }));
+    handleDetection(msg, sender)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true; // keep channel open for async response
   }
 
   if (msg.type === 'GET_CACHED_DETECTION') {
-    getEntry(msg.origin).then(sendResponse);
+    // A content script may read only its OWN origin's entry — otherwise the
+    // cache doubles as a cross-origin history oracle (ask about any origin,
+    // learn whether the user has visited or is logged into it). The popup has
+    // no sender.tab and legitimately asks about the active tab's origin.
+    if (sender.tab && msg.origin !== originFromSender(sender)) {
+      sendResponse(null);
+      return true;
+    }
+    getEntry(msg.origin).then(sendResponse).catch(() => sendResponse(null));
     return true;
   }
 
   // Popup pushes back its final detection (which may include the cookie-API
   // login override) so the toolbar icon and cache reflect it without waiting
-  // for a navigation.
+  // for a navigation. Popup-only: a content-script context must not be able to
+  // forge a resolution for an arbitrary origin/tab (it carries a sender.tab).
   if (msg.type === 'POPUP_DETECTION_RESOLVED') {
-    handlePopupResolution(msg).then(() => sendResponse({ ok: true }));
+    if (sender.tab) return;
+    handlePopupResolution(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 });
@@ -149,7 +181,11 @@ async function handlePopupResolution(msg) {
 }
 
 async function handleDetection(msg, sender) {
-  const { origin, detection, hostFromDOM } = msg;
+  const { detection, hostFromDOM } = msg;
+  // Key off the browser-attested origin, not msg.origin: a compromised renderer
+  // could otherwise write or overwrite another origin's cache / My Sites entry.
+  const origin = originFromSender(sender);
+  if (!origin) return;
   const now = Date.now();
   const cache = await getCache();
   const existing = cache[origin] || null;
@@ -274,32 +310,12 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!ctx.isLoggedIn) return;
 
   const origin = result.origin;
-  // Path-aware base so synthesized admin URLs respect a subdirectory
-  // install (issue #33); falls back to the origin for root installs.
-  const base = ctx.baseUrl || origin;
 
-  // Try sync resolution first (covers most cases).
-  // resolveEditUrlSync isn't available here (it's in lib/rest.js, loaded
-  // only in content scripts), so we inline the priority logic.
-  let editUrl = null;
-  if (ctx.adminBarEditHref) {
-    try {
-      // Require same-origin /wp-admin/ (not just same-origin) so a spoofed
-      // admin bar can't aim the shortcut at an arbitrary same-origin path.
-      const u = new URL(ctx.adminBarEditHref);
-      if (u.origin === origin && /\/wp-admin\//.test(u.pathname)) editUrl = ctx.adminBarEditHref;
-    } catch (_) { /* malformed href — ignore */ }
-  }
-
-  if (!editUrl && ctx.postId && ctx.pageType === 'single') {
-    editUrl = `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
-  }
-  if (!editUrl && ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-    editUrl = `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
-  }
-  if (!editUrl && ctx.pageType === 'author' && ctx.authorId) {
-    editUrl = `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
-  }
+  // Sync resolution via the shared resolver: same-origin/wp-admin guard on the
+  // admin-bar href, then post.php / term.php / user-edit.php by page type, all
+  // path-aware for subdirectory installs (#33). Kept identical to the popup's
+  // Edit action by reusing lib/rest.js rather than a hand-copied chain.
+  let editUrl = WPRest.resolveEditUrlSync(ctx, origin);
 
   // If sync didn't resolve, try the REST fallback via content script.
   if (!editUrl) {
