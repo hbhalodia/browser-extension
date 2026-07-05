@@ -14,8 +14,6 @@ function localizeUI() {
 localizeUI();
 
 const PREFS_KEY = 'wp_preferences_v1';
-const CACHE_KEY = 'wp_detection_cache_v1';
-const MY_SITES_KEY = 'wp_my_sites_v1';
 const GLOBAL_NS = '_global';
 
 const adminBarToggle = document.getElementById('adminBarHiddenDefault');
@@ -66,7 +64,12 @@ async function saveGlobalPref(key, value) {
 		const ok = window.confirm(chrome.i18n.getMessage('options_clear_confirm')); // "Clear all extension data?\n\nThis removes every saved per-site preference, the global defaults on this page, and the cached WordPress detection results. Cannot be undone."
 		if (!ok) return;
 		try {
-			await chrome.storage.local.remove([PREFS_KEY, CACHE_KEY, MY_SITES_KEY]);
+			// Everything in local storage belongs to this extension — per-site
+			// prefs, global defaults, detection cache, My Sites, and the DevTools
+			// accordion state (wp_devtools_open). A full clear can't silently miss
+			// a new key the way the old explicit allowlist did (it left
+			// wp_devtools_open behind).
+			await chrome.storage.local.clear();
 			adminBarToggle.checked = false;
 			siteInfoToggle.checked = false;
 			resetStatus.textContent = chrome.i18n.getMessage('options_cleared_success'); // "Cleared."

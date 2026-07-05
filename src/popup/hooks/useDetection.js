@@ -1,5 +1,27 @@
 import { useEffect, useState } from 'react';
 
+// Poll the content script for live detection until it answers or a short
+// budget elapses. Content scripts inject at document_idle, so a popup opened
+// mid-load on a first visit can beat the content script and get no response.
+// The caller only reaches here when there's also no cached entry (a genuine
+// first visit), so without this a still-silent content script reads as a
+// definitive "Not a WordPress site". ~1.2s ceiling (6 × 200ms); the content
+// script normally injects within a few hundred ms and answers authoritatively
+// (WordPress or not) as soon as it does.
+async function probeLiveDetection(tabId, isCancelled) {
+	for (let i = 0; i < 6; i++) {
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		if (isCancelled()) return null;
+		try {
+			const res = await chrome.tabs.sendMessage(tabId, { type: 'GET_LIVE_DETECTION' });
+			if (res) return res;
+		} catch (_) {
+			/* content script still not injected — keep waiting */
+		}
+	}
+	return null;
+}
+
 /**
  * Resolves the popup's view state from the active tab:
  *   1. Ask the content script for live detection (freshest context).
@@ -25,17 +47,15 @@ export function useDetection() {
 				const url = new URL(tab.url);
 				const origin = url.origin;
 
-				let result = null;
-				try {
-					result = await chrome.tabs.sendMessage(tab.id, { type: 'GET_LIVE_DETECTION' });
-				} catch (_) {
-					/* content script unreachable */
-				}
-
-				const cached = await chrome.runtime.sendMessage({
-					type: 'GET_CACHED_DETECTION',
-					origin,
-				});
+				// Live (content script) and cached (background) detection are
+				// independent, so fetch them together rather than in series to shave a
+				// message round-trip off first paint. Live rejects when the content
+				// script is not injected yet; treat that as null.
+				const [liveResult, cached] = await Promise.all([
+					chrome.tabs.sendMessage(tab.id, { type: 'GET_LIVE_DETECTION' }).catch(() => null),
+					chrome.runtime.sendMessage({ type: 'GET_CACHED_DETECTION', origin }),
+				]);
+				let result = liveResult;
 
 				if (!result && cached && cached.isWordPress) {
 					result = {
@@ -49,6 +69,16 @@ export function useDetection() {
 							context: {},
 						},
 					};
+				}
+
+				// No live answer and nothing cached: the background caches an entry
+				// for every origin it sees (WordPress or not), so a null cache means
+				// a genuine first visit. Combined with a silent content script, this
+				// is the one case where the page is still loading and a definitive
+				// "Not a WordPress site" would be a race, not a fact — poll briefly
+				// for the content script's real answer before concluding.
+				if (!result && !cached) {
+					result = await probeLiveDetection(tab.id, () => cancelled);
 				}
 
 				if (cancelled) return;
@@ -258,8 +288,9 @@ export function useDetection() {
 						if (cancelled) return;
 						const fc = fresh?.detection?.context;
 						if (fc) {
-							// Mutate-then-clone so React sees a new top-level object
-							// and re-renders the popup with the merged context.
+							// Merge fresh fields in, then setState a deep-cloned context:
+							// a shallow { ...result } reuses detection.context, so
+							// ctx-keyed useMemo caches (e.g. the Edit URL) stay stale.
 							const lc = result.detection.context;
 							if (fc.adminBarEditHref) lc.adminBarEditHref = fc.adminBarEditHref;
 							if (fc.adminBarViewHref) lc.adminBarViewHref = fc.adminBarViewHref;
@@ -273,7 +304,14 @@ export function useDetection() {
 							if (fc.commentCount != null) lc.commentCount = fc.commentCount;
 							if (fc.newContentItems?.length) lc.newContentItems = fc.newContentItems;
 							if (fc.hasQueryMonitor) lc.hasQueryMonitor = true;
-							setState({ status: 'detected', result: { ...result }, host });
+							setState({
+								status: 'detected',
+								result: {
+									...result,
+									detection: { ...result.detection, context: { ...lc } },
+								},
+								host,
+							});
 						}
 					} catch (_) { /* fresh fetch failed; partial state retained */ }
 				}

@@ -336,14 +336,6 @@
     "message": "Edit Page",
     "description": "Fallback edit action label when the post type cannot be determined"
   },
-  "edit_archive_coming_soon": {
-    "message": "Edit Archive (Coming Soon)",
-    "description": "Disabled edit action label for archive pages not yet supported"
-  },
-  "edit_homepage_coming_soon": {
-    "message": "Edit Homepage (Coming Soon)",
-    "description": "Disabled edit action label for the homepage when not yet supported"
-  },
   "edit_term_not_resolvable": {
     "message": "Edit Term (Not Resolvable)",
     "description": "Disabled edit action label when the term cannot be resolved to an edit URL"

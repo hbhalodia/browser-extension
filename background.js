@@ -14,45 +14,69 @@
 // the popup, which loads the same file as a classic script.
 importScripts('lib/my-sites.js');
 
-const CACHE_KEY = 'wp_detection_cache_v1';
+// REST helpers (globalThis.WPRest). The edit-this-page keyboard shortcut reuses
+// resolveEditUrlSync from here rather than maintaining a second copy of the
+// admin-URL priority chain and its same-origin guard.
+importScripts('lib/rest.js');
+
+// Detection results are cached one storage key per origin (wp_cache_<origin>)
+// rather than a single blob, so a page load reads and writes only its own
+// origin's entry instead of the whole browsing history, and concurrent writes
+// to different origins can't clobber each other.
+const CACHE_PREFIX = 'wp_cache_';
+// Pre-0.10.1 single-blob cache; discarded once on upgrade (see wipeLegacyCache).
+const LEGACY_CACHE_KEY = 'wp_detection_cache_v1';
 const REFRESH_INTERVAL      = 7 * 24 * 60 * 60 * 1000;  // 1 week
 const PURGE_AFTER           = 28 * 24 * 60 * 60 * 1000;  // 4 weeks
 const HOST_REFRESH_INTERVAL = 90 * 24 * 60 * 60 * 1000;  // 90 days
 
-// --- Cache helpers --------------------------------------------------------
+// --- Cache helpers (one storage key per origin) ---------------------------
 
-async function getCache() {
-  const data = await chrome.storage.local.get(CACHE_KEY);
-  return data[CACHE_KEY] || {};
-}
-
-async function writeCache(cache) {
-  await chrome.storage.local.set({ [CACHE_KEY]: cache });
+// Keep this prefix in sync with lib/early.js, which reads its origin's entry
+// directly at document_start.
+function cacheKey(origin) {
+  return CACHE_PREFIX + origin;
 }
 
 async function getEntry(origin) {
-  const cache = await getCache();
-  return cache[origin] || null;
+  const key = cacheKey(origin);
+  const data = await chrome.storage.local.get(key);
+  return data[key] || null;
 }
 
-async function upsertEntry(origin, entry) {
-  const cache = await getCache();
-  cache[origin] = entry;
-  await writeCache(cache);
+async function putEntry(origin, entry) {
+  await chrome.storage.local.set({ [cacheKey(origin)]: entry });
+}
+
+// Reads every per-origin entry as { origin: entry }. Cold paths only (startup
+// repaint, purge) — never per page load.
+async function getAllEntries() {
+  const all = await chrome.storage.local.get(null);
+  const entries = {};
+  for (const key of Object.keys(all)) {
+    if (key.startsWith(CACHE_PREFIX)) entries[key.slice(CACHE_PREFIX.length)] = all[key];
+  }
+  return entries;
 }
 
 async function purgeStale() {
-  const cache = await getCache();
+  const all = await chrome.storage.local.get(null);
   const now = Date.now();
-  let changed = false;
-  for (const origin of Object.keys(cache)) {
-    const entry = cache[origin];
-    if (!entry || !entry.lastSeen || now - entry.lastSeen > PURGE_AFTER) {
-      delete cache[origin];
-      changed = true;
-    }
+  const stale = [];
+  for (const key of Object.keys(all)) {
+    if (!key.startsWith(CACHE_PREFIX)) continue;
+    const entry = all[key];
+    if (!entry || !entry.lastSeen || now - entry.lastSeen > PURGE_AFTER) stale.push(key);
   }
-  if (changed) await writeCache(cache);
+  if (stale.length) await chrome.storage.local.remove(stale);
+}
+
+// One-time discard of the pre-0.10.1 single-blob cache. Nothing writes that key
+// anymore, so removing it once is permanent. My Sites and preferences live
+// under separate keys and are untouched; dropped detection results rebuild as
+// the user browses.
+async function wipeLegacyCache() {
+  await chrome.storage.local.remove(LEGACY_CACHE_KEY);
 }
 
 // --- My Sites: persistent list of WP installs the user logs into ----------
@@ -79,6 +103,7 @@ chrome.runtime.onStartup.addListener(onLoad);
 chrome.runtime.onInstalled.addListener(onLoad);
 
 async function onLoad() {
+  await wipeLegacyCache();
   await purgeStale();
   await repaintAllTabs();
 }
@@ -90,12 +115,12 @@ async function onLoad() {
 async function repaintAllTabs() {
   let tabs;
   try { tabs = await chrome.tabs.query({}); } catch (_) { return; }
-  const cache = await getCache();
+  const entries = await getAllEntries();
   for (const tab of tabs) {
     if (!tab.id || !tab.url || !/^https?:/.test(tab.url)) continue;
     try {
       const origin = new URL(tab.url).origin;
-      const entry = cache[origin];
+      const entry = entries[origin];
       await updateToolbar(
         tab.id,
         entry?.isWordPress || false,
@@ -105,25 +130,52 @@ async function repaintAllTabs() {
   }
 }
 
+// Origin as attested by the browser rather than taken from the message body:
+// sender.origin when present, else the sender tab's URL. Page JS can't forge
+// either, so cache and My Sites writes key off this instead of a spoofable
+// msg.origin.
+function originFromSender(sender) {
+  if (sender && sender.origin) return sender.origin;
+  try {
+    return sender && sender.tab && sender.tab.url ? new URL(sender.tab.url).origin : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
 
   if (msg.type === 'WP_DETECTION') {
     if (!sender.tab) return; // only accept from content scripts
-    handleDetection(msg, sender).then(() => sendResponse({ ok: true }));
+    handleDetection(msg, sender)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true; // keep channel open for async response
   }
 
   if (msg.type === 'GET_CACHED_DETECTION') {
-    getEntry(msg.origin).then(sendResponse);
+    // A content script may read only its OWN origin's entry — otherwise the
+    // cache doubles as a cross-origin history oracle (ask about any origin,
+    // learn whether the user has visited or is logged into it). The popup has
+    // no sender.tab and legitimately asks about the active tab's origin.
+    if (sender.tab && msg.origin !== originFromSender(sender)) {
+      sendResponse(null);
+      return true;
+    }
+    getEntry(msg.origin).then(sendResponse).catch(() => sendResponse(null));
     return true;
   }
 
   // Popup pushes back its final detection (which may include the cookie-API
   // login override) so the toolbar icon and cache reflect it without waiting
-  // for a navigation.
+  // for a navigation. Popup-only: a content-script context must not be able to
+  // forge a resolution for an arbitrary origin/tab (it carries a sender.tab).
   if (msg.type === 'POPUP_DETECTION_RESOLVED') {
-    handlePopupResolution(msg).then(() => sendResponse({ ok: true }));
+    if (sender.tab) return;
+    handlePopupResolution(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
     return true;
   }
 });
@@ -131,14 +183,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function handlePopupResolution(msg) {
   const { origin, tabId, isLoggedIn, isWordPress, baseUrl, siteIconUrl } = msg;
   if (!origin) return;
-  const cache = await getCache();
-  const existing = cache[origin] || null;
+  const existing = await getEntry(origin);
   const wasLoggedIn = existing?.isLoggedIn === true; // capture before mutating
   if (existing) {
     existing.isLoggedIn = !!isLoggedIn;
     existing.lastSeen = Date.now();
-    cache[origin] = existing;
-    await writeCache(cache);
+    await putEntry(origin, existing);
   }
   if (tabId) await updateToolbar(tabId, !!isWordPress, { isLoggedIn });
 
@@ -149,10 +199,13 @@ async function handlePopupResolution(msg) {
 }
 
 async function handleDetection(msg, sender) {
-  const { origin, detection, hostFromDOM } = msg;
+  const { detection, hostFromDOM } = msg;
+  // Key off the browser-attested origin, not msg.origin: a compromised renderer
+  // could otherwise write or overwrite another origin's cache / My Sites entry.
+  const origin = originFromSender(sender);
+  if (!origin) return;
   const now = Date.now();
-  const cache = await getCache();
-  const existing = cache[origin] || null;
+  const existing = await getEntry(origin);
 
   // Decide whether to trust this detection or the cache.
   // - If the current page strongly suggests WP, use it.
@@ -206,8 +259,7 @@ async function handleDetection(msg, sender) {
     } catch (_) { /* content script gone */ }
   }
 
-  cache[origin] = entry;
-  await writeCache(cache);
+  await putEntry(origin, entry);
   await updateToolbar(sender.tab.id, entry.isWordPress, detection.context);
 
   // Add to "My Sites" on a logged-in WordPress install. `existing?.isLoggedIn`
@@ -274,32 +326,12 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (!ctx.isLoggedIn) return;
 
   const origin = result.origin;
-  // Path-aware base so synthesized admin URLs respect a subdirectory
-  // install (issue #33); falls back to the origin for root installs.
-  const base = ctx.baseUrl || origin;
 
-  // Try sync resolution first (covers most cases).
-  // resolveEditUrlSync isn't available here (it's in lib/rest.js, loaded
-  // only in content scripts), so we inline the priority logic.
-  let editUrl = null;
-  if (ctx.adminBarEditHref) {
-    try {
-      // Require same-origin /wp-admin/ (not just same-origin) so a spoofed
-      // admin bar can't aim the shortcut at an arbitrary same-origin path.
-      const u = new URL(ctx.adminBarEditHref);
-      if (u.origin === origin && /\/wp-admin\//.test(u.pathname)) editUrl = ctx.adminBarEditHref;
-    } catch (_) { /* malformed href — ignore */ }
-  }
-
-  if (!editUrl && ctx.postId && ctx.pageType === 'single') {
-    editUrl = `${base}/wp-admin/post.php?post=${ctx.postId}&action=edit`;
-  }
-  if (!editUrl && ctx.pageType === 'term' && ctx.taxonomy && ctx.termId) {
-    editUrl = `${base}/wp-admin/term.php?taxonomy=${encodeURIComponent(ctx.taxonomy)}&tag_ID=${ctx.termId}`;
-  }
-  if (!editUrl && ctx.pageType === 'author' && ctx.authorId) {
-    editUrl = `${base}/wp-admin/user-edit.php?user_id=${ctx.authorId}`;
-  }
+  // Sync resolution via the shared resolver: same-origin/wp-admin guard on the
+  // admin-bar href, then post.php / term.php / user-edit.php by page type, all
+  // path-aware for subdirectory installs (#33). Kept identical to the popup's
+  // Edit action by reusing lib/rest.js rather than a hand-copied chain.
+  let editUrl = WPRest.resolveEditUrlSync(ctx, origin);
 
   // If sync didn't resolve, try the REST fallback via content script.
   if (!editUrl) {

@@ -5,6 +5,43 @@
  * open mobile preview, etc.).
  */
 
+// Ceiling for site fetches issued from the popup process. A hostile or simply
+// unresponsive server must not be able to pin a popup request open forever;
+// AbortSignal.timeout aborts the fetch (rejects with a TimeoutError the
+// existing catch handles) so the UI can settle. Chrome 103+ / Safari 16+.
+const REQUEST_TIMEOUT_MS = 10000;
+
+// Byte ceiling for response bodies we buffer + regex in the popup process
+// (profile.php is normally well under this). Guards against a hostile origin
+// streaming an unbounded body into memory even before the timeout fires.
+const MAX_RESPONSE_BYTES = 3 * 1024 * 1024;
+
+// Read a response body as text but bail past a byte cap. Throws when exceeded;
+// callers already treat any failure as "no nonce".
+async function readTextCapped(res, maxBytes) {
+	if (!res.body) return res.text();
+	const reader = res.body.getReader();
+	const chunks = [];
+	let received = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		received += value.byteLength;
+		if (received > maxBytes) {
+			try { await reader.cancel(); } catch (_) { /* ignore */ }
+			throw new Error('response exceeded size cap');
+		}
+		chunks.push(value);
+	}
+	const merged = new Uint8Array(received);
+	let offset = 0;
+	for (const chunk of chunks) {
+		merged.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return new TextDecoder().decode(merged);
+}
+
 export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl, logoutUrl, newTab = false }) {
 	// Path-aware install base for synthesized links (carries any subdirectory
 	// prefix — issue #33). Callers that predate it pass only `origin`; fall
@@ -192,8 +229,29 @@ export async function requestRestEditUrl() {
  * Returns { nonce, tab } so callers can reuse the tab handle without
  * re-querying.
  */
+// Module-scoped memo of the in-flight nonce resolution. The popup process is
+// torn down when the popup closes, so this cache lives exactly one popup
+// lifetime. Without it every consumer (current user, site info, template edit
+// URL) independently re-runs the whole resolution — a MAIN-world script
+// injection plus, on frontends that don't enqueue wp-api, a wp-admin/profile.php
+// fetch — so a single popup open paid that cost up to three times. All three
+// consumers pass the same `ctx.baseUrl || origin`, so keying on tab + base
+// collapses them onto one shared promise (a null result is cached too, so a
+// nonce-less frontend isn't re-probed three times).
+const nonceResolutionCache = new Map();
+
 async function resolveRestNonce(baseUrl = null) {
 	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+	const key = `${tab?.id ?? 'no-tab'}::${baseUrl || ''}`;
+	let pending = nonceResolutionCache.get(key);
+	if (!pending) {
+		pending = resolveNonceForTab(tab, baseUrl);
+		nonceResolutionCache.set(key, pending);
+	}
+	return pending;
+}
+
+async function resolveNonceForTab(tab, baseUrl) {
 	let nonce = null;
 	try {
 		const [out] = await chrome.scripting.executeScript({
@@ -227,11 +285,20 @@ async function resolveRestNonce(baseUrl = null) {
 			const res = await fetch(`${base}/wp-admin/profile.php`, {
 				credentials: 'include',
 				redirect: 'follow',
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 			});
 			if (res.ok) {
-				const html = await res.text();
-				const m = html.match(/(?:wpApiSettings|_wpApiSettings)\s*=\s*\{[^}]*"nonce"\s*:\s*"([a-f0-9]+)"/);
-				if (m) nonce = m[1];
+				const html = await readTextCapped(res, MAX_RESPONSE_BYTES);
+				// Reuse the shared scanner (also handles the createNonceMiddleware
+				// and data-* forms) instead of a third copy of the nonce regex.
+				const rest = typeof window !== 'undefined' ? window.WPRest : null;
+				if (rest && rest.findNonceInDocument) {
+					const doc = new DOMParser().parseFromString(html, 'text/html');
+					nonce = rest.findNonceInDocument(doc) || null;
+				} else {
+					const m = html.match(/(?:wpApiSettings|_wpApiSettings)\s*=\s*\{[^}]*"nonce"\s*:\s*"([a-f0-9]+)"/);
+					if (m) nonce = m[1];
+				}
 			}
 		} catch (_) { /* admin fetch failed — give up, will pass null */ }
 	}

@@ -124,7 +124,11 @@ function WpAdminActions({ ctx, origin, baseUrl, url, user }) {
 	const viewHrefSafe = (() => {
 		if (!ctx.adminBarViewHref) return null;
 		try {
-			return new URL(ctx.adminBarViewHref).origin === origin ? ctx.adminBarViewHref : null;
+			const u = new URL(ctx.adminBarViewHref);
+			// Same-origin AND http(s) — a spoofed admin bar can't steer View/Preview
+			// (or its Copy URL) at a javascript:/data: target.
+			const okScheme = u.protocol === 'http:' || u.protocol === 'https:';
+			return okScheme && u.origin === origin ? ctx.adminBarViewHref : null;
 		} catch (_) {
 			return null;
 		}

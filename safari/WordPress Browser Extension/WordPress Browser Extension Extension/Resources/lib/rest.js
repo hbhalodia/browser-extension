@@ -11,6 +11,22 @@
 (function () {
   'use strict';
 
+  // Default fetch wrapper: adds an abort timeout so a hostile or simply
+  // unresponsive site can't hold a request open indefinitely. These run in the
+  // page's renderer, but the popup awaits their results over message
+  // round-trips, so a stalled fetch would leave the popup spinning. Injected as
+  // the default `fetchImpl`; the smoke tests pass their own mock and bypass it.
+  // AbortSignal.timeout: Chrome 103+ / Safari 16+.
+  const REQUEST_TIMEOUT_MS = 10000;
+  function timedFetch(url, options = {}) {
+    if (typeof AbortSignal !== 'undefined'
+        && typeof AbortSignal.timeout === 'function'
+        && !options.signal) {
+      return fetch(url, { ...options, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    }
+    return fetch(url, options);
+  }
+
   // Built-in taxonomy → REST base. Custom taxonomies usually expose
   // rest_base equal to their taxonomy slug, which is what we fall back
   // to when there's no entry here.
@@ -18,6 +34,16 @@
     category: 'categories',
     post_tag: 'tags',
   };
+
+  // REST responses are attacker-influenced. IDs get interpolated into wp-admin
+  // URLs, so require a real positive integer; a rest_base gets interpolated into
+  // a fetch path, so require a plain slug.
+  function positiveIntOrNull(value) {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  function isRestBaseSlug(value) {
+    return typeof value === 'string' && /^[a-z0-9_-]+$/i.test(value);
+  }
 
   /**
    * Normalizes a same-origin REST root to end with '/'. Accepts the value
@@ -117,7 +143,7 @@
     }
   }
 
-  async function fetchTermId({ restApiRoot, origin, taxonomy, slug, fetchImpl = fetch }) {
+  async function fetchTermId({ restApiRoot, origin, taxonomy, slug, fetchImpl = timedFetch }) {
     if (!taxonomy || !slug) return null;
     const root = normalizeRoot(restApiRoot, origin);
     const base = TAX_REST_BASE[taxonomy] || taxonomy;
@@ -127,13 +153,13 @@
       if (!res.ok) return null;
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) return null;
-      return data[0].id || null;
+      return positiveIntOrNull(data[0].id);
     } catch (_) {
       return null;
     }
   }
 
-  async function fetchAuthorId({ restApiRoot, origin, slug, fetchImpl = fetch }) {
+  async function fetchAuthorId({ restApiRoot, origin, slug, fetchImpl = timedFetch }) {
     if (!slug) return null;
     const root = normalizeRoot(restApiRoot, origin);
     const url  = `${root}wp/v2/users?slug=${encodeURIComponent(slug)}`;
@@ -142,7 +168,7 @@
       if (!res.ok) return null;
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) return null;
-      return data[0].id || null;
+      return positiveIntOrNull(data[0].id);
     } catch (_) {
       return null;
     }
@@ -161,7 +187,7 @@
    * only — call resolveEditUrlSync first and fall back to this when it
    * returns null AND the context has slugs that need resolving.
    */
-  async function resolveEditUrlAsync(ctx, origin, fetchImpl = fetch) {
+  async function resolveEditUrlAsync(ctx, origin, fetchImpl = timedFetch) {
     const base = adminBase(ctx, origin);
 
     // Term archive without a numeric ID — resolve via REST.
@@ -262,7 +288,7 @@
    * requires edit_theme_options (admins) and a valid X-WP-Nonce. Returns
    * an array (possibly empty) or null on failure / insufficient caps.
    */
-  async function fetchTemplates({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+  async function fetchTemplates({ restApiRoot, origin, nonce, fetchImpl = timedFetch }) {
     const root = normalizeRoot(restApiRoot, origin);
     try {
       const res = await fetchImpl(`${root}wp/v2/templates`, {
@@ -289,7 +315,7 @@
    * Reads the active theme's `is_block_theme` flag first (cheap gate) and
    * only lists templates when it's a block theme.
    */
-  async function resolveTemplateEditUrlAsync({ ctx, origin, nonce, fetchImpl = fetch }) {
+  async function resolveTemplateEditUrlAsync({ ctx, origin, nonce, fetchImpl = timedFetch }) {
     if (!isTemplateBackedPage(ctx)) return { url: null, isBlockTheme: null };
 
     const theme = await fetchActiveTheme({
@@ -479,7 +505,7 @@
    * reveals plugins that register their own REST routes (wc/v3, yoast/v1,
    * contact-form-7/v1, etc.) even when DOM scanning misses them.
    */
-  async function fetchSiteInfo({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+  async function fetchSiteInfo({ restApiRoot, origin, nonce, fetchImpl = timedFetch }) {
     const root = normalizeRoot(restApiRoot, origin);
     try {
       const res = await fetchImpl(root, {
@@ -498,7 +524,7 @@
    * The collection endpoint returns an array; `?status=active` filters to
    * the one currently serving the site. Returns the first entry or null.
    */
-  async function fetchActiveTheme({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+  async function fetchActiveTheme({ restApiRoot, origin, nonce, fetchImpl = timedFetch }) {
     const root = normalizeRoot(restApiRoot, origin);
     try {
       const res = await fetchImpl(`${root}wp/v2/themes?status=active`, {
@@ -519,7 +545,7 @@
    * Returns an array of plugin objects with { plugin, name, version, author,
    * status, plugin_uri, ... } or null when unauthorized / REST is disabled.
    */
-  async function fetchPluginsDetail({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+  async function fetchPluginsDetail({ restApiRoot, origin, nonce, fetchImpl = timedFetch }) {
     const root = normalizeRoot(restApiRoot, origin);
     try {
       const res = await fetchImpl(`${root}wp/v2/plugins`, {
@@ -541,7 +567,7 @@
    * own record in edit context, so any logged-in user works. Returns the
    * user object or null on any failure (logged out, missing nonce, etc.).
    */
-  async function fetchCurrentUser({ restApiRoot, origin, nonce, fetchImpl = fetch }) {
+  async function fetchCurrentUser({ restApiRoot, origin, nonce, fetchImpl = timedFetch }) {
     const root = normalizeRoot(restApiRoot, origin);
     try {
       const res = await fetchImpl(`${root}wp/v2/users/me?context=edit`, {
@@ -565,7 +591,7 @@
    * Tries the well-known REST base first and falls back to the /types
    * endpoint for custom post types.
    */
-  async function fetchRawContent({ restApiRoot, origin, postType, postId, nonce, fetchImpl = fetch }) {
+  async function fetchRawContent({ restApiRoot, origin, postType, postId, nonce, fetchImpl = timedFetch }) {
     if (!postId) return null;
     const root = normalizeRoot(restApiRoot, origin);
     // `?context=edit` requires `edit_post` capability; WP rejects cookie
@@ -589,7 +615,7 @@
         );
         if (res.ok) {
           const info = await res.json();
-          if (info && info.rest_base) base = info.rest_base;
+          if (info && isRestBaseSlug(info.rest_base)) base = info.rest_base;
         }
       } catch (_) { /* fall through */ }
     }

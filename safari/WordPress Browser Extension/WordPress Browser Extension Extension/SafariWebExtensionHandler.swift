@@ -6,37 +6,18 @@
 //
 
 import SafariServices
-import os.log
 
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
+    // The extension declares no `nativeMessaging` permission and nothing calls
+    // browser.runtime.sendNativeMessage, so no native message is ever expected
+    // here. Keep this native boundary closed by default: complete every request
+    // with an empty response and log nothing about its contents (the converter
+    // template shipped a blind echo-plus-os_log, which this replaces). If a real
+    // native feature is added later, replace this with a deliberate, validated
+    // handler rather than extending an echo.
     func beginRequest(with context: NSExtensionContext) {
-        let request = context.inputItems.first as? NSExtensionItem
-
-        let profile: UUID?
-        if #available(iOS 17.0, macOS 14.0, *) {
-            profile = request?.userInfo?[SFExtensionProfileKey] as? UUID
-        } else {
-            profile = request?.userInfo?["profile"] as? UUID
-        }
-
-        let message: Any?
-        if #available(iOS 15.0, macOS 11.0, *) {
-            message = request?.userInfo?[SFExtensionMessageKey]
-        } else {
-            message = request?.userInfo?["message"]
-        }
-
-        os_log(.default, "Received message from browser.runtime.sendNativeMessage: %@ (profile: %@)", String(describing: message), profile?.uuidString ?? "none")
-
-        let response = NSExtensionItem()
-        if #available(iOS 15.0, macOS 11.0, *) {
-            response.userInfo = [ SFExtensionMessageKey: [ "echo": message ] ]
-        } else {
-            response.userInfo = [ "message": [ "echo": message ] ]
-        }
-
-        context.completeRequest(returningItems: [ response ], completionHandler: nil)
+        context.completeRequest(returningItems: [], completionHandler: nil)
     }
 
 }

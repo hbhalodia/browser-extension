@@ -10,13 +10,48 @@
   'use strict';
 
   const STORE_KEY = 'wp_my_sites_v1';
+  const MAX_ICON_URL_LEN = 2048;
+
+  // A stored baseUrl is the install base and is always same-origin as the
+  // record — a subdirectory install keeps the same origin, only the path
+  // differs. A cross-origin value is forged/poisoned input, so drop it and let
+  // callers fall back to the origin.
+  function sanitizeBaseUrl(baseUrl, origin) {
+    if (!baseUrl) return null;
+    try {
+      return new URL(baseUrl).origin === origin ? baseUrl : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Keep only http/https icon URLs within a sane length. Drops data: blobs (a
+  // logged-into site could otherwise lodge unbounded data in storage) and any
+  // other scheme; cross-origin http(s) is allowed since WP site icons are often
+  // CDN-served.
+  function sanitizeIconUrl(iconUrl) {
+    if (typeof iconUrl !== 'string' || !iconUrl || iconUrl.length > MAX_ICON_URL_LEN) return null;
+    try {
+      const p = new URL(iconUrl).protocol;
+      return p === 'http:' || p === 'https:' ? iconUrl : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   // Sites for display: newest login first. Removed sites are tombstoned
-  // (dismissed) rather than deleted, so they're filtered out here.
+  // (dismissed) rather than deleted, so they're filtered out here. baseUrl and
+  // iconUrl are re-sanitized on read so records persisted before the write-time
+  // guard (or by an older build) can't feed a poisoned URL to the popup.
   function listSites(store) {
     const sites = store && typeof store === 'object' ? store : {};
     return Object.values(sites)
       .filter((s) => s && s.origin && !s.dismissed)
+      .map((s) => ({
+        ...s,
+        baseUrl: sanitizeBaseUrl(s.baseUrl, s.origin),
+        iconUrl: sanitizeIconUrl(s.iconUrl),
+      }))
       .sort((a, b) => (b.lastLoggedInAt || 0) - (a.lastLoggedInAt || 0));
   }
 
@@ -35,6 +70,10 @@
    */
   function upsertOnLogin(store, { origin, baseUrl = null, iconUrl = null, wasLoggedIn = false, now = 0 }) {
     if (!origin) return store;
+    // Validate at the storage boundary: never persist a cross-origin baseUrl or
+    // a non-http(s)/oversized iconUrl, even if a forged detection reported one.
+    const safeBaseUrl = sanitizeBaseUrl(baseUrl, origin);
+    const safeIconUrl = sanitizeIconUrl(iconUrl);
     const current = store && typeof store === 'object' ? store : {};
     const existing = current[origin];
     if (existing) {
@@ -43,8 +82,8 @@
       next[origin] = {
         ...existing,
         lastLoggedInAt: now,
-        baseUrl: baseUrl || existing.baseUrl || null,
-        iconUrl: iconUrl || existing.iconUrl || null,
+        baseUrl: safeBaseUrl || existing.baseUrl || null,
+        iconUrl: safeIconUrl || existing.iconUrl || null,
       };
       delete next[origin].dismissed; // a fresh login brings a removed site back
       return next;
@@ -52,8 +91,8 @@
     const next = { ...current };
     next[origin] = {
       origin,
-      baseUrl: baseUrl || null,
-      iconUrl: iconUrl || null,
+      baseUrl: safeBaseUrl,
+      iconUrl: safeIconUrl,
       addedAt: now,
       lastLoggedInAt: now,
     };
@@ -98,5 +137,7 @@
     removeSite,
     renameSite,
     displayName,
+    sanitizeBaseUrl,
+    sanitizeIconUrl,
   };
 })();

@@ -23,6 +23,7 @@ const detectSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'detect.js')
 const restSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'rest.js'),   'utf8');
 const hostSrc   = fs.readFileSync(path.join(__dirname, '..', 'lib', 'host.js'),   'utf8');
 const mySitesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'my-sites.js'), 'utf8');
+const blockInspectorSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'block-inspector.js'), 'utf8');
 
 function loadModules(dom) {
   const ctx = dom.window;
@@ -32,6 +33,10 @@ function loadModules(dom) {
   new Function('globalThis', 'document', 'window', restSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', hostSrc)(ctx, ctx.document, ctx);
   new Function('globalThis', 'document', 'window', mySitesSrc)(ctx, ctx.document, ctx);
+  // block-inspector attaches WPDBlockInspector (incl. _parseBlockComments,
+  // exposed for these tests). Only defines functions at load — the DOM/observer
+  // work happens inside enable(), which the tests don't call.
+  new Function('globalThis', 'document', 'window', blockInspectorSrc)(ctx, ctx.document, ctx);
   return ctx;
 }
 
@@ -269,9 +274,9 @@ async function main() {
       'no host from generic nginx headers');
   }
 
-  // --- 13. Theme + plugin slugs from asset paths ------------------------
+  // --- 12. Theme + plugin slugs from asset paths ------------------------
   {
-    console.log('\n[13] Theme + plugin slug extraction');
+    console.log('\n[12] Theme + plugin slug extraction');
     const dom = new JSDOM(`
       <html><head>
         <link rel="https://api.w.org/" href="https://example.com/wp-json/">
@@ -299,9 +304,9 @@ async function main() {
     assert(wc.length === 1, 'duplicates collapsed');
   }
 
-  // --- 14. REST site-info helper returns parsed JSON --------------------
+  // --- 13. REST site-info helper returns parsed JSON --------------------
   {
-    console.log('\n[14] REST site-info helper');
+    console.log('\n[13] REST site-info helper');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
@@ -329,9 +334,9 @@ async function main() {
     assert(none === null, 'returns null on !ok response');
   }
 
-  // --- 15. Nonce extraction from inline scripts and data-* attrs --------
+  // --- 14. Nonce extraction from inline scripts and data-* attrs --------
   {
-    console.log('\n[15] findNonceInDocument — inline wpApiSettings + data-* fallbacks');
+    console.log('\n[14] findNonceInDocument — inline wpApiSettings + data-* fallbacks');
 
     // Pattern 1: WP's standard inline wpApiSettings object.
     const dom1 = new JSDOM(`
@@ -376,9 +381,9 @@ async function main() {
       'returns null when nothing matches');
   }
 
-  // --- 16. fetchRawContent sends X-WP-Nonce when given a nonce ----------
+  // --- 15. fetchRawContent sends X-WP-Nonce when given a nonce ----------
   {
-    console.log('\n[16] fetchRawContent — X-WP-Nonce wiring');
+    console.log('\n[15] fetchRawContent — X-WP-Nonce wiring');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
@@ -414,9 +419,9 @@ async function main() {
     assert(capturedHeaders === undefined, 'no headers object when nonce omitted');
   }
 
-  // --- 17. +New same-origin guard ---------------------------------------
+  // --- 16. +New same-origin guard ---------------------------------------
   {
-    console.log('\n[17] +New menu filters off-origin + non-/wp-admin/ hrefs');
+    console.log('\n[16] +New menu filters off-origin + non-/wp-admin/ hrefs');
     const dom = new JSDOM(`
       <html><head>
         <link rel="https://api.w.org/" href="https://example.com/wp-json/">
@@ -457,11 +462,11 @@ async function main() {
       'explicit options.origin lets DOMParser-style docs validate hrefs');
   }
 
-  // --- 18. DOM-sourced admin-bar URL guards -----------------------------
+  // --- 17. DOM-sourced admin-bar URL guards -----------------------------
   // A hostile page can fake an admin bar, so same-origin alone isn't enough:
   // edit/admin URLs must be /wp-admin/, and logout must be the real WP shape.
   {
-    console.log('\n[18] isSameOriginAdminUrl / isSameOriginLogoutUrl guards');
+    console.log('\n[17] isSameOriginAdminUrl / isSameOriginLogoutUrl guards');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const O = 'https://example.com';
@@ -491,9 +496,9 @@ async function main() {
     assert(logoutUrl(null, O) === false, 'null logout href rejected');
   }
 
-  // --- 19. Site icon detection from <link> tags -------------------------
+  // --- 18. Site icon detection from <link> tags -------------------------
   {
-    console.log('\n[19] Site icon — priority across <link> tag selectors');
+    console.log('\n[18] Site icon — priority across <link> tag selectors');
 
     // 192×192 is preferred when present.
     const dom1 = new JSDOM(`
@@ -573,9 +578,9 @@ async function main() {
       'data: scheme accepted');
   }
 
-  // --- 21. fetchCurrentUser hits /users/me with context=edit + nonce ----
+  // --- 19. fetchCurrentUser hits /users/me with context=edit + nonce ----
   {
-    console.log('\n[21] fetchCurrentUser — URL, headers, response shape');
+    console.log('\n[19] fetchCurrentUser — URL, headers, response shape');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
@@ -732,9 +737,9 @@ async function main() {
       'plain logged-in user (no network admin menu) is not flagged as super admin');
   }
 
-  // --- 22. Template-backed views — candidate slugs ----------------------
+  // --- 21. Template-backed views — candidate slugs ----------------------
   {
-    console.log('\n[24] templateCandidates — hierarchy per page type');
+    console.log('\n[21] templateCandidates — hierarchy per page type');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const cand = ctx.WPRest.templateCandidates;
@@ -755,9 +760,9 @@ async function main() {
     assert(ctx.WPRest.isTemplateBackedPage({ pageType: 'term' }) === false, 'term is NOT template-backed');
   }
 
-  // --- 23. pickTemplate matches the most specific registered slug --------
+  // --- 22. pickTemplate matches the most specific registered slug --------
   {
-    console.log('\n[25] pickTemplate — most specific registered template wins');
+    console.log('\n[22] pickTemplate — most specific registered template wins');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const pick = ctx.WPRest.pickTemplate;
@@ -785,9 +790,9 @@ async function main() {
       'template without id is skipped');
   }
 
-  // --- 24. buildSiteEditorUrl encodes the template id -------------------
+  // --- 23. buildSiteEditorUrl encodes the template id -------------------
   {
-    console.log('\n[26] buildSiteEditorUrl — site editor deep link');
+    console.log('\n[23] buildSiteEditorUrl — site editor deep link');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
     const build = ctx.WPRest.buildSiteEditorUrl;
@@ -799,9 +804,9 @@ async function main() {
     assert(build('https://example.com', { slug: 'home' }) === null, 'template without id → null URL');
   }
 
-  // --- 25. resolveTemplateEditUrlAsync — block vs classic theme ---------
+  // --- 24. resolveTemplateEditUrlAsync — block vs classic theme ---------
   {
-    console.log('\n[27] resolveTemplateEditUrlAsync — full block-theme resolution');
+    console.log('\n[24] resolveTemplateEditUrlAsync — full block-theme resolution');
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
@@ -884,9 +889,9 @@ async function main() {
       'term page short-circuits — no REST calls made');
   }
 
-  // --- 22. Subdirectory install — base URL derivation (issue #33) -------
+  // --- 25. Subdirectory install — base URL derivation (issue #33) -------
   {
-    console.log('\n[22] Subdirectory install base URL + admin link resolution');
+    console.log('\n[25] Subdirectory install base URL + admin link resolution');
 
     // deriveBaseUrl across the URL shapes WordPress emits.
     const dom = new JSDOM(`<html><body></body></html>`);
@@ -939,9 +944,9 @@ async function main() {
       'isSameOriginAdminUrl accepts subdirectory /wp-admin/');
   }
 
-  // --- 12. Not a WordPress site -----------------------------------------
+  // --- 26. Not a WordPress site -----------------------------------------
   {
-    console.log('\n[12] Non-WordPress page');
+    console.log('\n[26] Non-WordPress page');
     const dom = new JSDOM(`<html><head><title>Not WP</title></head><body>hello</body></html>`);
     const ctx = loadModules(dom);
     const det = ctx.WPDetect.detectWordPress(ctx.document);
@@ -949,9 +954,9 @@ async function main() {
     assert(det.confidence === 0, 'confidence=0');
   }
 
-  // --- 13. Capability gating for Edit / WordPress Admin -----------------
+  // --- 27. Capability gating for Edit / WordPress Admin -----------------
   {
-    console.log('\n[13] WPRest.canAccessAdmin / canEditCurrent capability gates');
+    console.log('\n[27] WPRest.canAccessAdmin / canEditCurrent capability gates');
     const dom = new JSDOM('<html><body></body></html>');
     const ctx = loadModules(dom);
     const { canAccessAdmin, canEditCurrent } = ctx.WPRest;
@@ -1040,9 +1045,9 @@ async function main() {
     assert(canEditCurrent({ pageType: 'archive' }, editor) === null, 'archive has no edit decision');
   }
 
-  // --- 23. My Sites store helpers ---------------------------------------
+  // --- 28. My Sites store helpers ---------------------------------------
   {
-    console.log('\n[23] WPMySites store helpers (add on login / curation / sort)');
+    console.log('\n[28] WPMySites store helpers (add on login / curation / sort)');
     const dom = new JSDOM('<html><body></body></html>');
     const { WPMySites } = loadModules(dom);
     const A = 'https://acme.com', B = 'https://blog.example.com', C = 'https://shop.example.com';
@@ -1082,11 +1087,33 @@ async function main() {
     assert(WPMySites.displayName(store[A]) === 'Acme — Staging', 'custom name wins for the label');
     store = WPMySites.renameSite(store, A, '   ');
     assert(store[A].customName === undefined, 'blank rename clears the custom name');
+
+    // Storage-boundary sanitization: a forged detection must not persist a
+    // cross-origin baseUrl or a data:/oversized/non-http(s) iconUrl.
+    const poisoned = WPMySites.upsertOnLogin({}, {
+      origin: A, baseUrl: 'https://evil.example/wp',
+      iconUrl: 'data:image/svg+xml,' + 'x'.repeat(5000), wasLoggedIn: false, now: 1,
+    });
+    assert(poisoned[A].baseUrl === null, 'cross-origin baseUrl is not persisted');
+    assert(poisoned[A].iconUrl === null, 'data:/oversized iconUrl is not persisted');
+
+    // A same-origin subdirectory base and a CDN (cross-origin http) icon are kept.
+    const kept = WPMySites.upsertOnLogin({}, {
+      origin: A, baseUrl: A + '/blog', iconUrl: 'https://cdn.example/i.png', wasLoggedIn: false, now: 1,
+    });
+    assert(kept[A].baseUrl === A + '/blog', 'same-origin subdirectory baseUrl is kept');
+    assert(kept[A].iconUrl === 'https://cdn.example/i.png', 'http(s) iconUrl (incl. CDN) is kept');
+
+    // listSites re-sanitizes records persisted before the write-time guard.
+    const legacy = { [A]: { origin: A, baseUrl: 'https://evil.example', iconUrl: 'javascript:alert(1)', lastLoggedInAt: 5 } };
+    const cleaned = WPMySites.listSites(legacy)[0];
+    assert(cleaned.baseUrl === null, 'listSites drops a persisted cross-origin baseUrl');
+    assert(cleaned.iconUrl === null, 'listSites drops a persisted non-http(s) iconUrl');
   }
 
-  // --- 28. Package integrity — referenced runtime files exist -----------
+  // --- 29. Package integrity — referenced runtime files exist -----------
   {
-    console.log('\n[28] verify-package — every referenced runtime file is present');
+    console.log('\n[29] verify-package — every referenced runtime file is present');
     const { collectReferenced, verify } = require('../scripts/verify-package.js');
     const root = path.join(__dirname, '..');
     const refs = collectReferenced(root);
@@ -1098,6 +1125,56 @@ async function main() {
     assert(refs.includes('lib/my-sites.js'), 'lib/my-sites.js tracked (background importScripts)');
     assert(refs.includes('lib/rest.js') && refs.includes('dist/popup.js'),
       'popup classic scripts + bundle tracked (popup.html)');
+  }
+
+  // --- 30. Block inspector: block-comment parsing + ReDoS resistance -----
+  {
+    console.log('\n[30] block-inspector _parseBlockComments (structure + ReDoS guard)');
+    const dom = new JSDOM('<html><body></body></html>');
+    const { WPDBlockInspector } = loadModules(dom);
+    const parse = WPDBlockInspector._parseBlockComments;
+
+    // Names are namespaced: bare names get the implicit `core/` prefix, and
+    // explicit namespaces are preserved.
+    const flat = parse('<!-- wp:paragraph -->x<!-- /wp:paragraph -->');
+    assert(flat.length === 1 && flat[0].name === 'core/paragraph', 'bare block name gets core/ prefix');
+    const ns = parse('<!-- wp:acme/card -->y<!-- /wp:acme/card -->');
+    assert(ns.length === 1 && ns[0].name === 'acme/card', 'namespaced block name preserved');
+
+    // Nesting: the tree mirrors open/close pairing.
+    const nested = parse(
+      '<!-- wp:columns --><!-- wp:column {"width":"50%"} -->' +
+      '<!-- wp:paragraph -->hi<!-- /wp:paragraph -->' +
+      '<!-- /wp:column --><!-- /wp:columns -->'
+    );
+    assert(nested.length === 1 && nested[0].name === 'core/columns', 'nesting: one top-level block');
+    assert(nested[0].children[0].name === 'core/column', 'nesting: column under columns');
+    assert(nested[0].children[0].children[0].name === 'core/paragraph', 'nesting: paragraph under column');
+    assert(nested[0].children[0].attrs.width === '50%', 'attrs JSON parsed onto the block');
+
+    // Self-closing (voids like spacer/nextpage) create no open frame.
+    const selfClosed = parse('<!-- wp:spacer {"height":"20px"} /--><!-- wp:paragraph -->z<!-- /wp:paragraph -->');
+    assert(selfClosed.length === 2, 'self-closing block does not swallow siblings');
+
+    // Malformed attribute JSON must not throw — the block is kept with {} attrs.
+    let threw = false;
+    let malformed;
+    try { malformed = parse('<!-- wp:image {this is not json} -->'); } catch (_) { threw = true; }
+    assert(!threw, 'malformed attrs JSON does not throw');
+    assert(malformed && malformed[0] && malformed[0].name === 'core/image', 'malformed-attrs block still parsed');
+
+    // ReDoS regression: a long `<!-- wp:name` + whitespace run that never
+    // closes with `-->` used to backtrack catastrophically (tens of seconds
+    // at n=8000). The de-ambiguated regex keeps it linear — assert it parses
+    // near-instantly. Guards against a future edit reintroducing the ambiguity.
+    const evil = '<!-- wp:a' + ' '.repeat(50000) + 'X';
+    const t0 = process.hrtime.bigint();
+    parse(evil);
+    const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert(elapsedMs < 50, `unterminated whitespace run parses in <50ms (was ${elapsedMs.toFixed(1)}ms)`);
+
+    // Oversized input is bounded out rather than parsed.
+    assert(parse('x'.repeat(2 * 1024 * 1024 + 1)).length === 0, 'oversized input returns no blocks');
   }
 
   console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' failure(s).'}`);

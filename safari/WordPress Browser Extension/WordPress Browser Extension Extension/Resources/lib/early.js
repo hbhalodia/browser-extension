@@ -16,19 +16,36 @@
  */
 (async function () {
   'use strict';
+
+  // Shared with content.js (both run in the same content-script isolated world;
+  // early.js at document_start always runs first) so the admin-bar hide rules
+  // live in one place and can't drift between the two files.
+  const HIDE_CSS = `
+      /*
+       * Admin bar hidden by the WordPress Browser Extension.
+       * Toggle "Show Admin Bar" in the extension popup to restore it on
+       * this site, or change the default in the extension options page.
+       */
+      #wpadminbar { display: none !important; }
+      html { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
+      html.admin-bar, html.wp-toolbar { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
+    `;
+  globalThis.WPDAdminBarHideCSS = HIDE_CSS;
+
   try {
     // Never touch the admin bar inside wp-admin — it's part of the UI.
     if (/\/wp-admin(\/|$)/.test(location.pathname)) return;
 
     const origin = location.origin;
 
-    const [cacheData, prefsData] = await Promise.all([
-      chrome.storage.local.get('wp_detection_cache_v1'),
-      chrome.storage.local.get('wp_preferences_v1'),
-    ]);
+    // Read only this origin's cache entry (wp_cache_<origin>) rather than the
+    // whole detection history — keep the prefix in sync with background.js
+    // CACHE_PREFIX — plus the prefs, in one storage get.
+    const cacheKey = 'wp_cache_' + origin;
+    const data = await chrome.storage.local.get([cacheKey, 'wp_preferences_v1']);
 
-    const entry = (cacheData.wp_detection_cache_v1 || {})[origin];
-    const prefsRoot = prefsData.wp_preferences_v1 || {};
+    const entry = data[cacheKey];
+    const prefsRoot = data.wp_preferences_v1 || {};
     const prefs = prefsRoot[origin];
     const globalPrefs = prefsRoot._global || {};
 
@@ -44,16 +61,7 @@
 
     const style = document.createElement('style');
     style.id = 'wp-detective-adminbar-hide';
-    style.textContent = `
-      /*
-       * Admin bar hidden by the WordPress Browser Extension.
-       * Toggle "Show Admin Bar" in the extension popup to restore it on
-       * this site, or change the default in the extension options page.
-       */
-      #wpadminbar { display: none !important; }
-      html { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
-      html.admin-bar, html.wp-toolbar { margin-top: 0 !important; --wp-admin--admin-bar--height: 0px !important; }
-    `;
+    style.textContent = HIDE_CSS;
     // documentElement exists even before <head>, so this is always safe.
     document.documentElement.appendChild(style);
     console.info(chrome.i18n.getMessage('admin_bar_hidden_notice')); // "[WordPress Browser Extension] Admin bar hidden on this site. Toggle "Show Admin Bar" in the extension popup or the options page."
