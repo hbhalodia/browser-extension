@@ -27,6 +27,11 @@
 	--wpd-hover: var(--wpds-color-bg-interactive-neutral-weak-active, #ededed);
 	--wpd-accent: var(--wp-admin-theme-color, #3858e9);
 	--wpd-active: #10a86a;
+	/* Destructive/danger foreground. The WPDS error token is never assigned
+	 * at runtime (the popup runs @wordpress/ui in its default no-Theme state),
+	 * so this resolves to the fallback — a light-mode red the dark block below
+	 * remaps for contrast. */
+	--wpd-danger: var(--wpds-color-fg-content-error, #c53030);
 	--wpd-radius: var(--wpds-border-radius-lg, 8px);
 	--wpd-radius-sm: var(--wpds-border-radius-md, 4px);
 }
@@ -41,6 +46,9 @@
 		--wpd-ink-dim: #a0a0a0;
 		--wpd-ink-muted: #6e6e6e;
 		--wpd-hover: #24282c;
+		/* The light-mode red (#c53030) only reaches ~3:1 on the dark dropdown
+		 * surface (#1c1f22) — below WCAG AA. Lift to a lighter red (~6:1). */
+		--wpd-danger: #f87171;
 	}
 }
 
@@ -307,7 +315,7 @@ body {
 }
 
 .wpd-user-menu__item--destructive {
-	color: var(--wpds-color-fg-content-error, #c53030);
+	color: var(--wpd-danger);
 
 	.wpd-user-menu__item-icon {
 		color: inherit;
