@@ -6,11 +6,13 @@ import { ToggleRow } from './ToggleRow';
 import { InlineConfirm } from './InlineConfirm';
 import { usePrefs } from '../hooks/usePrefs';
 import { runAction, toggleQueryMonitor, applyBlockInspectorPref } from '../lib/actions';
+import { usePanelReveal } from '../hooks/usePanelReveal';
 
 const OPEN_KEY = 'wp_devtools_open';
 
 export function DevTools({ origin, url, hasQueryMonitor = false, qmOpen = false }) {
 	const [open, setOpen] = useState(false);
+	const triggerRef = usePanelReveal(open);
 	const [hydrated, setHydrated] = useState(false);
 	const [prefs, savePref] = usePrefs(origin);
 	// Local mirror of QM panel state — `qmOpen` from props is the snapshot
@@ -41,7 +43,7 @@ export function DevTools({ origin, url, hasQueryMonitor = false, qmOpen = false 
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={handleOpenChange} className="wpd-devtools">
-			<Collapsible.Trigger className="wpd-devtools__trigger">
+			<Collapsible.Trigger ref={triggerRef} className="wpd-devtools__trigger">
 				<span className="wpd-devtools__label-group">
 					<Icon icon={code} size={16} />
 					<span className="wpd-devtools__label">{chrome.i18n.getMessage('dev_tools_label') /* "Developer Tools" */}</span>

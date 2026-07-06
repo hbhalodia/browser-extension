@@ -93,6 +93,21 @@ body {
 	animation: wpd-rise 0.24s cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 
+/* Scroll host for the Safari popup-sizing fix (see App.js useSafariPopupLock).
+ * On Safari the content wrapper is locked to the settled baseline height and
+ * the scroller takes over vertical scrolling; on Chrome both stay inert
+ * content-height blocks and the popup content-fits as before. */
+.wpd-scroll {
+	width: 100%;
+	overscroll-behavior: contain;
+}
+
+.wpd-scroll__content {
+	/* Own block formatting context so a child's top margin can't collapse
+	 * through the wrapper and skew the measured baseline height. */
+	display: flow-root;
+}
+
 @keyframes wpd-rise {
 	from {
 		opacity: 0;

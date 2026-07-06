@@ -3,6 +3,7 @@ import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, globe, dashboard, close } from '@wordpress/icons';
 import { useMySites } from '../hooks/useMySites';
 import { runAction, isNewTabIntent } from '../lib/actions';
+import { usePanelReveal } from '../hooks/usePanelReveal';
 
 /**
  * Global launcher for WordPress sites the user has logged into — a persistent,
@@ -16,6 +17,7 @@ import { runAction, isNewTabIntent } from '../lib/actions';
 export function MySites() {
 	const { sites, remove, rename, ready, displayName } = useMySites();
 	const [open, setOpen] = useState(false);
+	const triggerRef = usePanelReveal(open);
 	const [editing, setEditing] = useState(false);
 
 	// Hidden until the store has resolved and holds at least one site.
@@ -23,7 +25,7 @@ export function MySites() {
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={setOpen} className="wpd-siteinfo wpd-mysites">
-			<Collapsible.Trigger className="wpd-siteinfo__trigger">
+			<Collapsible.Trigger ref={triggerRef} className="wpd-siteinfo__trigger">
 				<span className="wpd-siteinfo__label-group">
 					<Icon icon={globe} size={16} />
 					<span className="wpd-siteinfo__label">
