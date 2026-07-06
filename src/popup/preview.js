@@ -44,6 +44,10 @@ window.WPRest = {
 	resolveEditUrlSync: (ctx, origin) =>
 		ctx.postId ? `${origin}/wp-admin/post.php?post=${ctx.postId}&action=edit` : null,
 	canResolveViaRest: (ctx) => !!ctx.postSlug,
+	// Mirrors lib/rest.js isTemplateBackedPage — pure, no backend needed.
+	// DetectedView calls this during render; without it the logged-in
+	// front-end fixtures throw and render blank (#53).
+	isTemplateBackedPage: (ctx) => ctx.pageType === 'home' || ctx.pageType === 'archive',
 	// Capability gates default to "allowed" in the preview — the canned user
 	// above is a full administrator, so the real lib logic would agree.
 	canAccessAdmin: () => true,
