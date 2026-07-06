@@ -3,6 +3,7 @@ import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, info as infoIcon } from '@wordpress/icons';
 import { requestSiteInfo } from '../lib/actions';
 import { mergePlugins, mergeTheme, stripTags } from '../../../lib/site-info.js';
+import { usePanelReveal } from '../hooks/usePanelReveal';
 
 /**
  * Surfaces whatever metadata we can gather about the site: active theme,
@@ -16,6 +17,7 @@ export function SiteInfoPanel({ ctx, origin, baseUrl, onOpen }) {
 	// Carries any subdirectory prefix for synthesized admin links (#33).
 	const base = baseUrl || origin;
 	const [open, setOpen] = useState(false);
+	const triggerRef = usePanelReveal(open);
 	const [data, setData] = useState(null);
 	const [loading, setLoading] = useState(false);
 	const [attempted, setAttempted] = useState(false);
@@ -76,7 +78,7 @@ export function SiteInfoPanel({ ctx, origin, baseUrl, onOpen }) {
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={handleOpenChange} className="wpd-siteinfo">
-			<Collapsible.Trigger className="wpd-siteinfo__trigger">
+			<Collapsible.Trigger ref={triggerRef} className="wpd-siteinfo__trigger">
 				<span className="wpd-siteinfo__label-group">
 					<Icon icon={infoIcon} size={16} />
 					<span className="wpd-siteinfo__label">{chrome.i18n.getMessage('site_info_label') /* "Site Information" */}</span>

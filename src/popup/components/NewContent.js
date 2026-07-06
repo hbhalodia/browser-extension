@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Collapsible, Icon } from '@wordpress/ui';
 import { chevronDown, plus, post, page, media, people } from '@wordpress/icons';
 import { ActionRow } from './ActionRow';
+import { usePanelReveal } from '../hooks/usePanelReveal';
 
 /**
  * Maps admin-bar item ids (e.g. "post", "page", "media", "user") to the
@@ -19,11 +20,12 @@ const iconFor = (id) => ICON_BY_ID[id] || plus;
 
 export function NewContent({ items = [], onOpen }) {
 	const [open, setOpen] = useState(false);
+	const triggerRef = usePanelReveal(open);
 	if (!items.length) return null;
 
 	return (
 		<Collapsible.Root open={open} onOpenChange={setOpen} className="wpd-newcontent">
-			<Collapsible.Trigger className="wpd-newcontent__trigger">
+			<Collapsible.Trigger ref={triggerRef} className="wpd-newcontent__trigger">
 				<span className="wpd-newcontent__label-group">
 					<Icon icon={plus} size={16} />
 					<span className="wpd-newcontent__label">{chrome.i18n.getMessage('new_content_label') /* "New" */}</span>
