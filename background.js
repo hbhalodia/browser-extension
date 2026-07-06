@@ -178,7 +178,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
+
+  // Safari opens a new window at the parent window's size when the parent is
+  // maximized or fullscreen, ignoring windows.create's width/height. Re-assert
+  // the requested size once the window exists — from here so it survives the
+  // popup closing (see issue #13).
+  if (msg.type === 'ENFORCE_PREVIEW_SIZE') {
+    enforcePreviewSize(msg.winId, msg.width, msg.height);
+    return;
+  }
 });
+
+// Polls until the window accepts the requested size or closes. Safari ignores
+// the size on create and takes a beat before it honors an update, so we
+// re-assert on a short interval and stop as soon as it sticks.
+async function enforcePreviewSize(winId, width, height) {
+  if (winId == null) return;
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    let win;
+    try {
+      win = await chrome.windows.get(winId);
+    } catch (_) {
+      return; // window closed
+    }
+    if (win.state === 'normal' && Math.abs((win.width || 0) - width) <= 40) return; // sized + un-maximized
+    try {
+      // state:'normal' clears the maximized/zoomed state the window inherited
+      // from its parent, so dragging it doesn't snap back to the parent's width.
+      await chrome.windows.update(winId, { state: 'normal', width, height });
+    } catch (_) {
+      return;
+    }
+  }
+}
 
 async function handlePopupResolution(msg) {
   const { origin, tabId, isLoggedIn, isWordPress, baseUrl, siteIconUrl } = msg;

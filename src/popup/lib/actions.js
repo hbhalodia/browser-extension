@@ -97,11 +97,9 @@ export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl
 			break;
 		}
 		case 'mobile-preview':
-			// Popup window sized to match an iPhone 16/17 Pro (393 × 852).
-			// Chrome's popup type adds ~60px of chrome (title bar + URL bar),
-			// so the actual viewport is slightly shorter — close enough for a
-			// responsive preview without the window looking oversized.
-			await chrome.windows.create({ url, type: 'popup', width: 393, height: 852 });
+			// iPhone-sized preview window (393 × 852). See openMobilePreview:
+			// Safari needs the size re-asserted after create (issue #13).
+			await openMobilePreview(url);
 			window.close();
 			return;
 		case 'clear-data':
@@ -115,6 +113,32 @@ export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl
 		await chrome.tabs.update({ url: target });
 	}
 	window.close();
+}
+
+// Opens the Mobile Preview window sized to an iPhone (393 × 852). Safari opens a
+// new window at the parent window's size when the parent is maximized or
+// fullscreen, ignoring windows.create's width/height. A page-side resize does
+// not take and the popup closes too fast to fix it itself, so on Safari we hand
+// the window off to the background to re-assert the size (it survives the popup
+// closing). See issue #13.
+async function openMobilePreview(url) {
+	const W = 393;
+	const H = 852;
+	let win = null;
+	try {
+		win = await chrome.windows.create({ url, type: 'popup', width: W, height: H });
+	} catch (_) {
+		return;
+	}
+	// navigator.vendor is 'Apple Computer, Inc.' only on Safari; Chrome sizes the
+	// window correctly on create, so the enforce step is Safari-only.
+	if (win && win.id != null && navigator.vendor === 'Apple Computer, Inc.') {
+		try {
+			chrome.runtime.sendMessage({ type: 'ENFORCE_PREVIEW_SIZE', winId: win.id, width: W, height: H });
+		} catch (_) {
+			/* ignore */
+		}
+	}
 }
 
 /**
