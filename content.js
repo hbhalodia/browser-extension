@@ -115,9 +115,17 @@
   const isWpAdmin = /\/wp-admin(\/|$)/.test(location.pathname);
   if (detection.context.isLoggedIn && !isWpAdmin) {
     loadAdminBarPref().then((hidden) => {
-      if (hidden) applyHide();
-      else applyShow();
+      if (hidden) {
+        if (hideStyle) {  // already hidden
+          console.info(chrome.i18n.getMessage('admin_bar_hidden_notice'));
+        }
+        applyHide();
+      } else {
+        applyShow();
+      }
     });
+  } else {
+    applyShow();
   }
 
   // -- Block inspector -----------------------------------------------------
