@@ -1,0 +1,45 @@
+# Test + build gate. The build steps double as a drift check: dist/ and the
+# Safari Resources mirror are committed, so regenerating both from source and
+# diffing catches a PR whose bundle does not match its source (or that forgot
+# the Safari mirror) before review has to.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            test/package-lock.json
+
+      - name: Install dependencies (locked)
+        run: |
+          npm ci
+          npm ci --prefix test
+
+      - name: Run tests
+        run: npm test --prefix test
+
+      - name: Verify package references
+        run: node scripts/verify-package.js .
+
+      - name: Rebuild popup bundle and Safari mirror
+        run: npm run build:safari
+
+      - name: Fail on generated-file drift
+        run: |
+          git diff --exit-code || {
+            echo '::error::dist/ or the Safari Resources mirror does not match a clean rebuild from source. Run "npm run build:safari" and commit the result.'
+            exit 1
+          }
