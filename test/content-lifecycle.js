@@ -192,6 +192,39 @@ async function main() {
       'unrelated body classes untouched');
   }
 
+  // --- 38. Early login hint fires only on a cached-logged-in mismatch ------
+  {
+    console.log('\n[38] early.js login hint (#59)');
+    const loggedInCache = {
+      'wp_cache_https://example.com': { isWordPress: true, isLoggedIn: true },
+    };
+    const hintsIn = (page) =>
+      page.sent.filter((m) => m && m.type === 'WP_LOGIN_HINT');
+
+    // Cache says logged in, DOM says logged out → downgrade hint.
+    const out = makePage('<html><head></head><body><p>logged out</p></body></html>', {
+      storageData: loggedInCache,
+    });
+    out.runEarly();
+    await settle();
+    assert(hintsIn(out).length === 1 && hintsIn(out)[0].loggedIn === false,
+      'hint sent for cached-logged-in origin rendering logged-out DOM');
+
+    // DOM agrees it is logged in → no hint.
+    const still = makePage(WP_LOGGED_IN_PAGE, { storageData: loggedInCache });
+    still.runEarly();
+    await settle();
+    assert(hintsIn(still).length === 0, 'no hint when the DOM shows logged-in');
+
+    // Cache carries no logged-in claim → nothing to downgrade, no hint.
+    const anon = makePage('<html><head></head><body><p>logged out</p></body></html>', {
+      storageData: { 'wp_cache_https://example.com': { isWordPress: true } },
+    });
+    anon.runEarly();
+    await settle();
+    assert(hintsIn(anon).length === 0, 'no hint without a cached logged-in claim');
+  }
+
   console.log(`\n${failures === 0 ? 'Content lifecycle tests passed.' : failures + ' failure(s).'}`);
   process.exit(failures === 0 ? 0 : 1);
 }

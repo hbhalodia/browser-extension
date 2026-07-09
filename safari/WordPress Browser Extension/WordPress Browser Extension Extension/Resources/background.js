@@ -267,6 +267,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
+
+  // Early downgrade hint from lib/early.js at DOMContentLoaded (#59): the
+  // icon painted from cache can claim logged-in for seconds before full
+  // detection reports the logged-out DOM at document_idle. Content scripts
+  // only (origin is browser-attested, like WP_DETECTION), and downgrade-only:
+  // a hint can never set logged-in, so a forged hint is powerless beyond
+  // hastening what full detection would conclude anyway.
+  if (msg.type === 'WP_LOGIN_HINT') {
+    if (!sender.tab || msg.loggedIn !== false) return;
+    const origin = originFromSender(sender);
+    if (!origin) return;
+    (async () => {
+      const entry = await getEntry(origin);
+      if (!entry || !entry.isLoggedIn) return;
+      entry.isLoggedIn = false;
+      await putEntry(origin, entry);
+      await updateToolbar(sender.tab.id, !!entry.isWordPress, { isLoggedIn: false });
+    })().catch(() => {});
+    return;
+  }
 });
 
 // True when a message came from one of this extension's own pages (popup, or
@@ -411,9 +431,11 @@ const ignoreLastError = () => void chrome.runtime.lastError;
 
 async function updateToolbar(tabId, isWordPress, context) {
   // Three states: not WP (gray + slash), WP but not logged in (gray),
-  // WP + logged in (blue). The cache doesn't carry isLoggedIn so on a
-  // tab-URL-change icon refresh we'll briefly show the gray "WP" variant
-  // until the content script reports back with auth context.
+  // WP + logged in (blue). On a tab-URL-change refresh the icon paints from
+  // the cached entry (including its isLoggedIn), then corrects when the
+  // content script reports in — early.js hints a logged-in→logged-out
+  // downgrade at DOMContentLoaded (#59) so a stale blue doesn't linger to
+  // document_idle.
   const variant = !isWordPress ? '-inactive'
     : context?.isLoggedIn ? '-active'
     : '';
