@@ -71,6 +71,7 @@ function loadBackground(storage) {
   new Function('globalThis', 'document', 'window', restSrc)(libCtx, undefined, undefined);
 
   const listeners = { message: [] };
+  const iconCalls = [];
   const noopEvent = { addListener: () => {} };
   const chromeStub = {
     runtime: {
@@ -88,9 +89,10 @@ function loadBackground(storage) {
       update: async () => {},
     },
     action: {
-      setIcon: (_o, cb) => cb && cb(),
+      setIcon: (opts, cb) => { iconCalls.push(opts); cb && cb(); },
       setTitle: (_o, cb) => cb && cb(),
     },
+    i18n: { getMessage: (key) => `[i18n:${key}]` },
     commands: { onCommand: noopEvent },
     windows: { get: async () => ({}), update: async () => {} },
   };
@@ -110,7 +112,7 @@ function loadBackground(storage) {
       if (keptOpen !== true) resolve(undefined);
     });
 
-  return { send, WPMySites: libCtx.WPMySites };
+  return { send, WPMySites: libCtx.WPMySites, iconCalls };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -204,6 +206,38 @@ async function main() {
       OPTIONS_SENDER,
     );
     assert(opts?.ok === true, 'options page (extension page in a real tab) is accepted');
+  }
+
+  // --- 39. WP_LOGIN_HINT downgrades the cached login state (#59) ----------
+  {
+    console.log('\n[39] early login hint downgrades cache and icon, and nothing else');
+    const CACHE_KEY = 'wp_cache_https://a.example';
+    const storage = makeStorage({
+      [CACHE_KEY]: { isWordPress: true, isLoggedIn: true, lastSeen: 123 },
+      'wp_cache_https://b.example': { isWordPress: true, isLoggedIn: true, lastSeen: 456 },
+    });
+    const { send, iconCalls } = loadBackground(storage);
+    const contentSender = (host) => ({ url: `https://${host}/page`, tab: { id: 5, url: `https://${host}/page` } });
+
+    await send({ type: 'WP_LOGIN_HINT', loggedIn: false }, contentSender('a.example'));
+    await settle();
+    assert(storage.read(CACHE_KEY).isLoggedIn === false, 'cached isLoggedIn downgraded');
+    assert(iconCalls.length === 1, 'toolbar icon repainted once');
+    assert(iconCalls[0]?.path?.[16] === 'icons/icon-16.png', 'icon dropped to the logged-out WP variant');
+
+    // Repeat hint: entry already logged-out, nothing to do.
+    await send({ type: 'WP_LOGIN_HINT', loggedIn: false }, contentSender('a.example'));
+    await settle();
+    assert(iconCalls.length === 1, 'idempotent — no second repaint');
+
+    // Upgrade attempts and non-content senders are powerless.
+    await send({ type: 'WP_LOGIN_HINT', loggedIn: true }, contentSender('b.example'));
+    await send({ type: 'WP_LOGIN_HINT', loggedIn: false }, POPUP_SENDER);
+    await send({ type: 'WP_LOGIN_HINT', loggedIn: false }, contentSender('unknown.example'));
+    await settle();
+    assert(storage.read('wp_cache_https://b.example').isLoggedIn === true,
+      'loggedIn:true hint ignored (downgrade-only)');
+    assert(iconCalls.length === 1, 'popup sender and unknown origin ignored');
   }
 
   console.log(`\n${failures === 0 ? 'Background storage tests passed.' : failures + ' failure(s).'}`);
