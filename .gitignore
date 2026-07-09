@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 CLAUDE.md
 .claude/
 .DS_Store

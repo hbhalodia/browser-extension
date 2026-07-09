@@ -27,7 +27,7 @@ For UX questions, "should we…?" discussions, demo recordings, or feature ideas
 ```bash
 git clone https://github.com/WordPress/browser-extension.git
 cd browser-extension
-npm install
+npm ci            # installs the locked dependency tree (package-lock.json)
 npm run build     # production bundle → dist/popup.{js,css}
 # OR
 npm start         # watch mode for development
@@ -40,16 +40,19 @@ For Safari development, see [`SAFARI.md`](SAFARI.md).
 ### Testing
 
 ```bash
-cd test && npm install && npm test
+cd test && npm ci && npm test
 ```
 
-Smoke tests cover the vanilla `lib/*.js` modules. Test before opening a PR.
+Tests cover the vanilla `lib/*.js` modules plus jsdom-driven lifecycle
+coverage for `content.js`, `background.js` storage coordination, and the
+popup's destructive actions. Test before opening a PR.
 
 ### Architecture notes
 
 - The popup UI is React + [`@wordpress/ui`](https://www.npmjs.com/package/@wordpress/ui), bundled with [`@wordpress/scripts`](https://www.npmjs.com/package/@wordpress/scripts) → `dist/popup.{js,css}`.
 - The background service worker (`background.js`), content scripts (`content.js`), `lib/*.js`, and the extension options page (`options/*`) are plain JavaScript — no build step there. Don't introduce a bundler dependency for those without discussion.
 - The Safari build re-uses the Chrome runtime via `npm run build:safari`, which rsyncs all shipping files into the Xcode project resources.
+- **Generated files are committed.** `dist/popup.{js,css}` and the Safari Resources mirror ship from the repo. After touching popup source or any shipping runtime file, run `npm run build:safari` and commit the regenerated output with the source change. CI rebuilds everything from a clean locked install and fails the PR if the committed output does not match.
 
 ### Conventions
 

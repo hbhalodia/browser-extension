@@ -1,6 +1,6 @@
 {
   "name": "wordpress-browser-extension",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "private": true,
   "description": "Browser extension that detects WordPress sites and surfaces admin/developer shortcuts.",
   "license": "MIT",
@@ -25,7 +25,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@wordpress/scripts": "^30.0.0",
+    "@wordpress/scripts": "^32.6.0",
     "cross-env": "^7.0.3",
     "sharp": "^0.34.5"
   },

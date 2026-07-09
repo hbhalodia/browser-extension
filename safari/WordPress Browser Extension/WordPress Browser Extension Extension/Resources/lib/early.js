@@ -50,6 +50,33 @@
     const globalPrefs = prefsRoot._global || {};
 
     const isKnownWP = entry && entry.isWordPress;
+
+    // Early login-state hint (#59). The toolbar icon paints from this cache
+    // entry the moment the tab starts loading; when the session has expired,
+    // the correction otherwise waits for full detection at document_idle —
+    // seconds later on a heavy page. If the cache claims logged-in, check the
+    // parsed DOM at DOMContentLoaded and tell the background as soon as the
+    // page visibly disagrees. Downgrade-only: upgrades stay with full
+    // detection, so recordLogin's logged-out→logged-in transition rule (the
+    // My Sites re-add gate) keeps its meaning.
+    if (isKnownWP && entry.isLoggedIn) {
+      const hintIfLoggedOut = () => {
+        const domLoggedIn =
+          (document.body && document.body.classList.contains('logged-in')) ||
+          !!document.getElementById('wpadminbar');
+        if (domLoggedIn) return;
+        try {
+          chrome.runtime.sendMessage({ type: 'WP_LOGIN_HINT', loggedIn: false })
+            .catch(() => { /* background asleep/unreachable — idle report will fix it */ });
+        } catch (_) { /* extension context invalidated */ }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hintIfLoggedOut, { once: true });
+      } else {
+        hintIfLoggedOut();
+      }
+    }
+
     // Per-origin choice wins. The global "hide by default" option from the
     // options page only fires for sites the user has not explicitly set.
     const hasOriginPref = prefs && typeof prefs.adminBarHidden === 'boolean';
@@ -61,6 +88,10 @@
 
     const style = document.createElement('style');
     style.id = 'wp-detective-adminbar-hide';
+    // Ownership marker: content.js only adopts (and will only ever remove)
+    // elements carrying this attribute, so a page-owned element that happens
+    // to share the ID is left alone.
+    style.setAttribute('data-wpd-owned', '');
     style.textContent = HIDE_CSS;
     // documentElement exists even before <head>, so this is always safe.
     document.documentElement.appendChild(style);

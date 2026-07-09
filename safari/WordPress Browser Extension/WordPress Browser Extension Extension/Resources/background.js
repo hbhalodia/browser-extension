@@ -79,6 +79,27 @@ async function wipeLegacyCache() {
   await chrome.storage.local.remove(LEGACY_CACHE_KEY);
 }
 
+// --- Serialized writes for shared single-object stores ---------------------
+
+// The detection cache dodges read-modify-write races with one key per origin
+// (see CACHE_PREFIX above). My Sites and the preferences root stay single
+// objects (small, read whole by the popup), so every mutation of them funnels
+// through this queue instead: writes run one at a time, each seeing the
+// previous one's result. chrome.storage.local gives no atomicity across a
+// get/set pair — two concurrent writers would both read the old object and
+// the later set() would drop the earlier update. The popup and options pages
+// send MUTATE_* messages here rather than writing these keys themselves.
+const PREFS_KEY = 'wp_preferences_v1';
+
+let storageWriteChain = Promise.resolve();
+function enqueueStorageWrite(mutate) {
+  const run = storageWriteChain.then(mutate, mutate);
+  // Keep the chain alive past a failed write; the caller still sees the
+  // rejection through `run`.
+  storageWriteChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 // --- My Sites: persistent list of WP installs the user logs into ----------
 
 // Record a logged-in WordPress site, applying the curation rule in
@@ -87,14 +108,52 @@ async function wipeLegacyCache() {
 // browsing it logged in — only a fresh logged-out→logged-in transition does.
 async function recordLogin(origin, baseUrl, iconUrl, wasLoggedIn) {
   if (!origin) return;
-  const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
-  const store = data[WPMySites.STORE_KEY] || {};
-  const next = WPMySites.upsertOnLogin(store, {
-    origin, baseUrl: baseUrl || null, iconUrl: iconUrl || null, wasLoggedIn, now: Date.now(),
+  await enqueueStorageWrite(async () => {
+    const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
+    const store = data[WPMySites.STORE_KEY] || {};
+    const next = WPMySites.upsertOnLogin(store, {
+      origin, baseUrl: baseUrl || null, iconUrl: iconUrl || null, wasLoggedIn, now: Date.now(),
+    });
+    if (next !== store) {
+      await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
+    }
   });
-  if (next !== store) {
-    await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
+}
+
+// Popup curation actions (rename / remove), serialized against recordLogin
+// and each other so a login racing a curation edit can't drop either write.
+async function mutateMySites({ op, origin, name }) {
+  if (typeof origin !== 'string' || !origin) throw new Error('bad origin');
+  return enqueueStorageWrite(async () => {
+    const data = await chrome.storage.local.get(WPMySites.STORE_KEY);
+    const store = data[WPMySites.STORE_KEY] || {};
+    let next = store;
+    if (op === 'remove') next = WPMySites.removeSite(store, origin);
+    else if (op === 'rename') next = WPMySites.renameSite(store, origin, name);
+    if (next !== store) {
+      await chrome.storage.local.set({ [WPMySites.STORE_KEY]: next });
+    }
+    return next;
+  });
+}
+
+// Writes one preference field into `wp_preferences_v1[ns]` (`ns` is an origin
+// or the options page's '_global' namespace), serialized so a popup toggle
+// can't clobber a concurrent options-page write or vice versa.
+async function mutatePref({ ns, key, value }) {
+  if (typeof ns !== 'string' || !ns) throw new Error('bad ns');
+  if (typeof key !== 'string' || !key) throw new Error('bad key');
+  const t = typeof value;
+  if (!(value === null || t === 'boolean' || t === 'number' || t === 'string')) {
+    throw new Error('bad value');
   }
+  return enqueueStorageWrite(async () => {
+    const data = await chrome.storage.local.get(PREFS_KEY);
+    const root = data[PREFS_KEY] || {};
+    const next = { ...root, [ns]: { ...(root[ns] || {}), [key]: value } };
+    await chrome.storage.local.set({ [PREFS_KEY]: next });
+    return next;
+  });
 }
 
 // --- Detection handling ---------------------------------------------------
@@ -187,7 +246,59 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     enforcePreviewSize(msg.winId, msg.width, msg.height);
     return;
   }
+
+  // Extension pages route their My Sites / preference writes through here so
+  // every read-modify-write of those shared objects is serialized (see
+  // enqueueStorageWrite). Extension pages only — a content script must not be
+  // able to curate My Sites or flip preferences. `sender.tab` can't tell the
+  // two apart (the options page opens in a real tab), but the sender URL can.
+  if (msg.type === 'MUTATE_MY_SITES') {
+    if (!isExtensionPageSender(sender)) return;
+    mutateMySites(msg)
+      .then((store) => sendResponse({ ok: true, store }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (msg.type === 'MUTATE_PREF') {
+    if (!isExtensionPageSender(sender)) return;
+    mutatePref(msg)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  // Early downgrade hint from lib/early.js at DOMContentLoaded (#59): the
+  // icon painted from cache can claim logged-in for seconds before full
+  // detection reports the logged-out DOM at document_idle. Content scripts
+  // only (origin is browser-attested, like WP_DETECTION), and downgrade-only:
+  // a hint can never set logged-in, so a forged hint is powerless beyond
+  // hastening what full detection would conclude anyway.
+  if (msg.type === 'WP_LOGIN_HINT') {
+    if (!sender.tab || msg.loggedIn !== false) return;
+    const origin = originFromSender(sender);
+    if (!origin) return;
+    (async () => {
+      const entry = await getEntry(origin);
+      if (!entry || !entry.isLoggedIn) return;
+      entry.isLoggedIn = false;
+      await putEntry(origin, entry);
+      await updateToolbar(sender.tab.id, !!entry.isWordPress, { isLoggedIn: false });
+    })().catch(() => {});
+    return;
+  }
 });
+
+// True when a message came from one of this extension's own pages (popup, or
+// the options page — which opens in a normal tab, so sender.tab is set for
+// it). Content scripts carry the web page's URL instead of an extension URL.
+function isExtensionPageSender(sender) {
+  try {
+    return !!(sender && sender.url && sender.url.startsWith(chrome.runtime.getURL('')));
+  } catch (_) {
+    return false;
+  }
+}
 
 // Polls until the window accepts the requested size or closes. Safari ignores
 // the size on create and takes a beat before it honors an update, so we
@@ -320,9 +431,11 @@ const ignoreLastError = () => void chrome.runtime.lastError;
 
 async function updateToolbar(tabId, isWordPress, context) {
   // Three states: not WP (gray + slash), WP but not logged in (gray),
-  // WP + logged in (blue). The cache doesn't carry isLoggedIn so on a
-  // tab-URL-change icon refresh we'll briefly show the gray "WP" variant
-  // until the content script reports back with auth context.
+  // WP + logged in (blue). On a tab-URL-change refresh the icon paints from
+  // the cached entry (including its isLoggedIn), then corrects when the
+  // content script reports in — early.js hints a logged-in→logged-out
+  // downgrade at DOMContentLoaded (#59) so a stale blue doesn't linger to
+  // document_idle.
   const variant = !isWordPress ? '-inactive'
     : context?.isLoggedIn ? '-active'
     : '';

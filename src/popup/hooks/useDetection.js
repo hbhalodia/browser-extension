@@ -287,7 +287,34 @@ export function useDetection() {
 						]);
 						if (cancelled) return;
 						const fc = fresh?.detection?.context;
-						if (fc) {
+						if (fresh?.detection?.isWordPress && fc && !fc.isLoggedIn) {
+							// The credentialed re-fetch came back as logged-out HTML:
+							// the cookie that asserted login is stale (expired or
+							// invalidated session), and this is what the user actually
+							// gets from the site. Downgrade instead of enriching, and
+							// re-push the resolution so the cache and toolbar icon
+							// correct immediately too (#59). A null/failed fresh fetch
+							// never lands here — no downgrade without fresh evidence.
+							const lc = result.detection.context;
+							lc.isLoggedIn = false;
+							chrome.runtime.sendMessage({
+								type: 'POPUP_DETECTION_RESOLVED',
+								origin,
+								tabId: tab.id,
+								isWordPress: true,
+								isLoggedIn: false,
+								baseUrl: lc.baseUrl || null,
+								siteIconUrl: lc.siteIconUrl || null,
+							}).catch(() => {});
+							setState({
+								status: 'detected',
+								result: {
+									...result,
+									detection: { ...result.detection, context: { ...lc } },
+								},
+								host,
+							});
+						} else if (fc) {
 							// Merge fresh fields in, then setState a deep-cloned context:
 							// a shallow { ...result } reuses detection.context, so
 							// ctx-keyed useMemo caches (e.g. the Edit URL) stay stale.

@@ -171,6 +171,13 @@ const WP_COOKIE_PATTERNS = [/^wordpress_/, /^wp-settings-/, /^wp_/];
 const isWpCookie = (name) => WP_COOKIE_PATTERNS.some((re) => re.test(name));
 
 async function clearSiteData(origin) {
+	// Capture the tab identity up front, before any await. The user's
+	// confirmation was for the page the popup opened over; resolving the
+	// active tab later (after the cookie round-trips) could hand the
+	// storage clear to a different tab.
+	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+	const tabId = tab && tab.id != null ? tab.id : null;
+
 	// 1. Remove cookies scoped to this exact host, except WordPress auth.
 	//
 	// `chrome.cookies.getAll({ domain })` matches cookies whose effective
@@ -190,22 +197,39 @@ async function clearSiteData(origin) {
 		});
 	await Promise.all(removePromises);
 
-	// 2. Clear localStorage and sessionStorage via the content script.
-	const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-	try {
-		await chrome.scripting.executeScript({
-			target: { tabId: tab.id },
-			func: () => {
-				try { localStorage.clear(); } catch (_) { /* ignore */ }
-				try { sessionStorage.clear(); } catch (_) { /* ignore */ }
-			},
-		});
-	} catch (_) {
-		/* content script unreachable */
+	// 2. Clear localStorage and sessionStorage in the captured tab. The
+	// origin re-check runs inside the target document itself: a same-tab
+	// navigation keeps the tab id, so checking out here (or trusting the
+	// tab's `url` snapshot) would leave a check/use race. If the page has
+	// navigated away from the confirmed origin, nothing is cleared.
+	let cleared = false;
+	if (tabId != null) {
+		try {
+			const results = await chrome.scripting.executeScript({
+				target: { tabId },
+				func: (expectedOrigin) => {
+					if (location.origin !== expectedOrigin) return false;
+					try { localStorage.clear(); } catch (_) { /* ignore */ }
+					try { sessionStorage.clear(); } catch (_) { /* ignore */ }
+					return true;
+				},
+				args: [origin],
+			});
+			cleared = results && results[0] && results[0].result === true;
+		} catch (_) {
+			/* tab closed or script unreachable — leave cleared false */
+		}
 	}
 
-	// 3. Reload the page so the clean state takes effect.
-	await chrome.tabs.reload(tab.id);
+	// 3. Reload so the clean state takes effect — only the captured tab,
+	// and only when it actually cleared the confirmed origin.
+	if (cleared) {
+		try {
+			await chrome.tabs.reload(tabId);
+		} catch (_) {
+			/* tab closed between clear and reload */
+		}
+	}
 	window.close();
 }
 

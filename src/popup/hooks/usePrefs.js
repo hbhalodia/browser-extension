@@ -25,10 +25,15 @@ export function usePrefs(origin) {
 	const savePref = useCallback(
 		async (key, value) => {
 			setPrefs((prev) => ({ ...prev, [key]: value }));
-			const data = await chrome.storage.local.get(PREFS_KEY);
-			const all = data[PREFS_KEY] || {};
-			all[origin] = { ...(all[origin] || {}), [key]: value };
-			await chrome.storage.local.set({ [PREFS_KEY]: all });
+			// The write goes through the background worker, which serializes
+			// mutations of the shared preferences object — a second popup
+			// instance or the options page writing concurrently would
+			// otherwise clobber this update (or be clobbered by it).
+			try {
+				await chrome.runtime.sendMessage({ type: 'MUTATE_PREF', ns: origin, key, value });
+			} catch (_) {
+				/* background unreachable (dev preview) — optimistic state stands */
+			}
 		},
 		[origin],
 	);
