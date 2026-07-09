@@ -1,0 +1,213 @@
+/**
+ * Tests for the popup's destructive clear-data action
+ * (src/popup/lib/actions.js).
+ *
+ * The file is an ES module with no imports that reads `chrome` and `window`
+ * as free globals, so it can be evaluated with the same new Function()
+ * pattern smoke.js uses for the lib IIFEs — the `export ` prefixes are
+ * stripped and stub globals are passed as parameters.
+ *
+ * The executeScript stub emulates the injected document: it materializes
+ * `location` / `localStorage` / `sessionStorage` reflecting the tab's
+ * origin *at execution time* and invokes the injected function against
+ * them, so the in-document origin re-check is exercised for real.
+ *
+ *   cd test && npm install && npm test
+ */
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const actionsSrc = readFileSync(
+	join(__dirname, '..', 'src', 'popup', 'lib', 'actions.js'),
+	'utf8',
+).replace(/^export /gm, '');
+
+let failures = 0;
+
+// Installs page-document globals on globalThis for the duration of `fn`.
+// Node has none of these by default, so add/remove is safe.
+function withDocumentGlobals(globals, fn) {
+	for (const [key, value] of Object.entries(globals)) globalThis[key] = value;
+	try {
+		return fn();
+	} finally {
+		for (const key of Object.keys(globals)) delete globalThis[key];
+	}
+}
+
+function assert(cond, msg) {
+	if (!cond) {
+		failures++;
+		console.error('  FAIL:', msg);
+	} else {
+		console.log('  ok  :', msg);
+	}
+}
+
+/**
+ * Builds a chrome stub for one clear-data run.
+ *
+ * `originAfterCookieWork` simulates the page navigating while the popup's
+ * cookie round-trips are in flight: the tab starts on `origin` and reports
+ * the new origin from the moment cookies.getAll resolves.
+ */
+function makeHarness({
+	origin = 'https://site-a.example',
+	originAfterCookieWork = null,
+	tabId = 7,
+	closeTabBeforeExecute = false,
+	closeTabBeforeReload = false,
+} = {}) {
+	const calls = {
+		queries: 0,
+		localCleared: 0,
+		sessionCleared: 0,
+		reloadedTabIds: [],
+		removedCookies: [],
+	};
+	let currentOrigin = origin;
+
+	const chrome = {
+		tabs: {
+			query: async () => {
+				calls.queries++;
+				return [{ id: tabId, url: `${currentOrigin}/` }];
+			},
+			reload: async (id) => {
+				if (closeTabBeforeReload) throw new Error('No tab with id');
+				calls.reloadedTabIds.push(id);
+			},
+		},
+		cookies: {
+			getAll: async () => {
+				if (originAfterCookieWork) currentOrigin = originAfterCookieWork;
+				return [
+					{ name: 'sess', hostOnly: true, domain: 'site-a.example', path: '/', secure: true },
+					{ name: 'wordpress_logged_in_abc', hostOnly: true, domain: 'site-a.example', path: '/', secure: true },
+					{ name: 'parent', hostOnly: false, domain: '.example', path: '/', secure: true },
+				];
+			},
+			remove: async ({ name }) => {
+				calls.removedCookies.push(name);
+			},
+		},
+		scripting: {
+			executeScript: async ({ target, func, args }) => {
+				if (closeTabBeforeExecute) throw new Error('No tab with id: ' + target.tabId);
+				// The injected function resolves location/storage as free
+				// identifiers from the global object, so emulate the target
+				// document by installing them on globalThis for the call.
+				const result = withDocumentGlobals(
+					{
+						location: { origin: currentOrigin },
+						localStorage: { clear: () => calls.localCleared++ },
+						sessionStorage: { clear: () => calls.sessionCleared++ },
+					},
+					() => func(...(args || [])),
+				);
+				return [{ result }];
+			},
+		},
+	};
+
+	const windowStub = { close: () => {}, WPRest: null };
+	const loader = new Function('chrome', 'window', 'navigator', `${actionsSrc}\nreturn { runAction };`);
+	const { runAction } = loader(chrome, windowStub, { vendor: 'Test' });
+
+	return { runAction, calls, origin };
+}
+
+console.log('\n[24] clear-data — stable tab and origin');
+{
+	const { runAction, calls, origin } = makeHarness();
+	await runAction('clear-data', { origin, url: `${origin}/` });
+	assert(calls.localCleared === 1, 'localStorage cleared');
+	assert(calls.sessionCleared === 1, 'sessionStorage cleared');
+	assert(calls.reloadedTabIds.length === 1 && calls.reloadedTabIds[0] === 7,
+		'captured tab reloaded');
+	assert(calls.queries === 1, 'tab identity resolved once, before async work');
+	assert(calls.removedCookies.length === 1 && calls.removedCookies[0] === 'sess',
+		'host-only non-WP cookie removed; WP auth + parent-domain cookies kept');
+}
+
+console.log('\n[25] clear-data — tab navigated to another origin mid-flight');
+{
+	const { runAction, calls, origin } = makeHarness({
+		originAfterCookieWork: 'https://victim-b.example',
+	});
+	await runAction('clear-data', { origin, url: `${origin}/` });
+	assert(calls.localCleared === 0, 'localStorage NOT cleared on the new origin');
+	assert(calls.sessionCleared === 0, 'sessionStorage NOT cleared on the new origin');
+	assert(calls.reloadedTabIds.length === 0, 'navigated tab not reloaded');
+}
+
+console.log('\n[26] clear-data — tab closed before script injection');
+{
+	const { runAction, calls, origin } = makeHarness({ closeTabBeforeExecute: true });
+	let rejected = false;
+	try {
+		await runAction('clear-data', { origin, url: `${origin}/` });
+	} catch (_) {
+		rejected = true;
+	}
+	assert(!rejected, 'resolves without an unhandled rejection');
+	assert(calls.reloadedTabIds.length === 0, 'no reload attempted');
+}
+
+console.log('\n[27] clear-data — tab closed between clear and reload');
+{
+	const { runAction, calls, origin } = makeHarness({ closeTabBeforeReload: true });
+	let rejected = false;
+	try {
+		await runAction('clear-data', { origin, url: `${origin}/` });
+	} catch (_) {
+		rejected = true;
+	}
+	assert(!rejected, 'reload failure is swallowed');
+	assert(calls.localCleared === 1, 'storage was still cleared for the confirmed origin');
+}
+
+console.log('\n[28] clear-data — origin check lives inside the injected function');
+{
+	// The injected function itself must refuse the wrong origin even if
+	// every popup-side check passed: invoke it directly with a mismatched
+	// document origin and assert it declines to clear.
+	const { runAction, calls, origin } = makeHarness();
+	let injectedFunc = null;
+	let injectedArgs = null;
+	const chrome = {
+		tabs: {
+			query: async () => [{ id: 1, url: `${origin}/` }],
+			reload: async () => {},
+		},
+		cookies: { getAll: async () => [], remove: async () => {} },
+		scripting: {
+			executeScript: async ({ func, args }) => {
+				injectedFunc = func;
+				injectedArgs = args;
+				return [{ result: false }];
+			},
+		},
+	};
+	const loader = new Function('chrome', 'window', 'navigator', `${actionsSrc}\nreturn { runAction };`);
+	const { runAction: run } = loader(chrome, { close: () => {}, WPRest: null }, { vendor: 'Test' });
+	await run('clear-data', { origin, url: `${origin}/` });
+	assert(typeof injectedFunc === 'function', 'a function is injected');
+	assert(Array.isArray(injectedArgs) && injectedArgs[0] === origin,
+		'expected origin is passed into the document');
+	const cleared = withDocumentGlobals(
+		{
+			location: { origin: 'https://other.example' },
+			localStorage: { clear: () => calls.localCleared++ },
+			sessionStorage: { clear: () => calls.sessionCleared++ },
+		},
+		() => injectedFunc(origin),
+	);
+	assert(cleared === false, 'injected function refuses a mismatched document origin');
+	assert(calls.localCleared === 0, 'and clears nothing');
+}
+
+console.log(`\n${failures === 0 ? 'Popup action tests passed.' : failures + ' failure(s).'}`);
+process.exit(failures === 0 ? 0 : 1);
