@@ -35,24 +35,30 @@ export function useMySites() {
 		};
 	}, []);
 
+	// Curation edits update local state optimistically, but the storage write
+	// happens in the background worker, which serializes mutations of the
+	// shared store — a login recorded while the popup edits would otherwise
+	// race this write and one of the two would be lost. The onChanged
+	// listener above reconciles state with whatever the background persists.
+	const sendMutation = (payload) => {
+		try {
+			const p = chrome.runtime?.sendMessage?.({ type: 'MUTATE_MY_SITES', ...payload });
+			if (p && typeof p.catch === 'function') p.catch(() => {});
+		} catch (_) {
+			/* background unreachable (dev preview) — optimistic state stands */
+		}
+	};
+
 	const remove = useCallback((origin) => {
 		const lib = wpMySites();
-		setStore((cur) => {
-			if (!lib || !cur) return cur;
-			const next = lib.removeSite(cur, origin);
-			chrome.storage?.local?.set({ [STORE_KEY]: next });
-			return next;
-		});
+		setStore((cur) => (lib && cur ? lib.removeSite(cur, origin) : cur));
+		sendMutation({ op: 'remove', origin });
 	}, []);
 
 	const rename = useCallback((origin, name) => {
 		const lib = wpMySites();
-		setStore((cur) => {
-			if (!lib || !cur) return cur;
-			const next = lib.renameSite(cur, origin, name);
-			chrome.storage?.local?.set({ [STORE_KEY]: next });
-			return next;
-		});
+		setStore((cur) => (lib && cur ? lib.renameSite(cur, origin, name) : cur));
+		sendMutation({ op: 'rename', origin, name });
 	}, []);
 
 	const lib = wpMySites();

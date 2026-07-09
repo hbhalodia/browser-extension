@@ -32,11 +32,11 @@ async function loadGlobalPrefs() {
 
 async function saveGlobalPref(key, value) {
 	try {
-		const data = await chrome.storage.local.get(PREFS_KEY);
-		const root = data[PREFS_KEY] || {};
-		const next = { ...(root[GLOBAL_NS] || {}), [key]: value };
-		await chrome.storage.local.set({ [PREFS_KEY]: { ...root, [GLOBAL_NS]: next } });
-	} catch (_) { /* storage write failed; UI stays unsynced until next reload */ }
+		// Routed through the background worker, which serializes writes to the
+		// shared preferences object — a popup toggle racing this write would
+		// otherwise lose one of the two updates.
+		await chrome.runtime.sendMessage({ type: 'MUTATE_PREF', ns: GLOBAL_NS, key, value });
+	} catch (_) { /* background unreachable; UI stays unsynced until next reload */ }
 }
 
 (async () => {
