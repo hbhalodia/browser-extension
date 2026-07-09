@@ -315,6 +315,7 @@ function useEditUrlResolution(ctx, origin) {
 		return () => {
 			cancelled = true;
 		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- ctx.baseUrl/origin are stable for a popup lifetime; re-running on their identity would refire the resolution requests
 	}, [needsAsync, needsTemplateAsync, asyncAttempted]);
 
 	return {

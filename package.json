@@ -14,6 +14,7 @@
   "homepage": "https://github.com/WordPress/browser-extension#readme",
   "scripts": {
     "build": "cross-env NODE_ENV=production wp-scripts build",
+    "lint": "eslint .",
     "start": "cross-env NODE_ENV=development wp-scripts start",
     "build:safari": "npm run build && bash scripts/sync-safari.sh",
     "package:chrome": "bash scripts/package-chrome.sh"
