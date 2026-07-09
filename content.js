@@ -47,7 +47,20 @@
 
   // -- Admin bar visibility ------------------------------------------------
 
+  // Adopt the style lib/early.js injected at document_start — but only a
+  // node this extension actually created: a <style> carrying the
+  // data-wpd-owned marker. This script matches every http(s) page, and
+  // applyShow() removes whatever it adopted, so a page-owned element that
+  // merely shares the ID must never be picked up. The marker is not a
+  // security boundary (a page faking it only opts its own node into
+  // removal); it prevents accidental damage to page-owned DOM.
   let hideStyle = document.getElementById('wp-detective-adminbar-hide');
+  if (
+    hideStyle &&
+    !(hideStyle.tagName === 'STYLE' && hideStyle.hasAttribute('data-wpd-owned'))
+  ) {
+    hideStyle = null;
+  }
   let removedClasses = [];
 
   // The admin-bar and block-inspector paths both read wp_preferences_v1; share
@@ -79,6 +92,8 @@
     if (!hideStyle) {
       hideStyle = document.createElement('style');
       hideStyle.id = 'wp-detective-adminbar-hide';
+      // Ownership marker — see the adoption check above applyHide.
+      hideStyle.setAttribute('data-wpd-owned', '');
       // Shared rule set defined once in early.js (same content-script world).
       hideStyle.textContent = globalThis.WPDAdminBarHideCSS || '';
       document.documentElement.appendChild(hideStyle);

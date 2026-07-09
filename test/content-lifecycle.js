@@ -1,0 +1,199 @@
+/**
+ * Admin-bar style lifecycle tests for lib/early.js + content.js.
+ *
+ * Loads the real scripts under jsdom with a stubbed `chrome`, following the
+ * smoke.js new Function() pattern. Focus: ownership of the
+ * #wp-detective-adminbar-hide node — the extension must remove only styles
+ * it created (marked data-wpd-owned) and never a page-owned element that
+ * happens to share the ID (content.js runs on every http(s) page since the
+ * 0.10.3 logged-out cleanup).
+ *
+ *   cd test && npm install && npm test
+ */
+const { JSDOM } = require('jsdom');
+const fs = require('fs');
+const path = require('path');
+
+const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
+const detectSrc = read('lib', 'detect.js');
+const restSrc = read('lib', 'rest.js');
+const hostSrc = read('lib', 'host.js');
+const earlySrc = read('lib', 'early.js');
+const contentSrc = read('content.js');
+
+let failures = 0;
+function assert(cond, msg) {
+  if (!cond) { failures++; console.error('  FAIL:', msg); }
+  else       {             console.log ('  ok  :', msg); }
+}
+
+const STYLE_ID = 'wp-detective-adminbar-hide';
+
+/**
+ * Runs a script source against a jsdom window with a chrome stub, binding
+ * the same free identifiers the content-script world provides.
+ */
+function runScript(src, ctx, chromeStub, consoleStub) {
+  new Function('globalThis', 'document', 'window', 'location', 'chrome', 'console', src)(
+    ctx, ctx.document, ctx, ctx.location, chromeStub, consoleStub,
+  );
+}
+
+/**
+ * Builds a page context with the lib modules loaded and a chrome stub whose
+ * storage returns `storageData`. Returns hooks into everything the tests
+ * observe: runtime messages sent, console.info lines, and the registered
+ * onMessage listeners (for driving popup toggles).
+ */
+function makePage(html, { url = 'https://example.com/', storageData = {} } = {}) {
+  const dom = new JSDOM(html, { url });
+  const ctx = dom.window;
+  runScript(detectSrc, ctx, {}, console);
+  runScript(restSrc, ctx, {}, console);
+  runScript(hostSrc, ctx, {}, console);
+
+  const sent = [];
+  const infos = [];
+  const listeners = [];
+  const chromeStub = {
+    runtime: {
+      sendMessage: (msg) => { sent.push(msg); return Promise.resolve(); },
+      onMessage: { addListener: (fn) => listeners.push(fn) },
+    },
+    storage: {
+      local: { get: async () => storageData },
+    },
+    i18n: { getMessage: (key) => `[i18n:${key}]` },
+  };
+  const consoleStub = { ...console, info: (line) => infos.push(line) };
+
+  return {
+    ctx,
+    chromeStub,
+    consoleStub,
+    sent,
+    infos,
+    listeners,
+    runEarly: () => runScript(earlySrc, ctx, chromeStub, consoleStub),
+    runContent: () => runScript(contentSrc, ctx, chromeStub, consoleStub),
+    styleEl: () => ctx.document.getElementById(STYLE_ID),
+  };
+}
+
+// Async IIFEs (early.js) and loadAdminBarPref settle on the microtask queue
+// plus one storage promise; a couple of macrotask turns flushes both.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+const WP_LOGGED_IN_PAGE = `
+  <html><head>
+    <link rel="https://api.w.org/" href="https://example.com/wp-json/">
+    <meta name="generator" content="WordPress 6.5">
+  </head><body class="home logged-in admin-bar">
+    <div id="wpadminbar"></div>
+  </body></html>
+`;
+
+const PLAIN_PAGE_WITH_COLLIDING_DIV = `
+  <html><head><title>Not WordPress</title></head>
+  <body>
+    <div id="${STYLE_ID}">page-owned content</div>
+  </body></html>
+`;
+
+const PLAIN_PAGE_WITH_COLLIDING_STYLE = `
+  <html><head>
+    <style id="${STYLE_ID}">.page-owned { color: red; }</style>
+  </head><body><p>Not WordPress</p></body></html>
+`;
+
+async function main() {
+  // --- 29. Page-owned same-ID element survives logged-out cleanup ---------
+  {
+    console.log('\n[29] page-owned div with the extension style ID survives');
+    const page = makePage(PLAIN_PAGE_WITH_COLLIDING_DIV);
+    page.runContent();
+    await settle();
+    const el = page.styleEl();
+    assert(!!el, 'element still in the DOM');
+    assert(el && el.textContent === 'page-owned content', 'content untouched');
+  }
+
+  // --- 30. Page-owned <style> without the marker also survives ------------
+  {
+    console.log('\n[30] page-owned <style> with the same ID (no marker) survives');
+    const page = makePage(PLAIN_PAGE_WITH_COLLIDING_STYLE);
+    page.runContent();
+    await settle();
+    assert(!!page.styleEl(), 'tag type alone does not grant ownership');
+  }
+
+  // --- 31. Extension-created early style is cleaned up when logged out ----
+  {
+    console.log('\n[31] early.js style on a logged-out page is removed by content.js');
+    const page = makePage('<html><head></head><body><p>logged out</p></body></html>', {
+      storageData: {
+        'wp_cache_https://example.com': { isWordPress: true },
+        wp_preferences_v1: { 'https://example.com': { adminBarHidden: true } },
+      },
+    });
+    page.runEarly();
+    await settle();
+    const early = page.styleEl();
+    assert(!!early, 'early.js injected the hide style');
+    assert(early && early.tagName === 'STYLE' && early.hasAttribute('data-wpd-owned'),
+      'early style carries the ownership marker');
+    page.runContent();
+    await settle();
+    assert(!page.styleEl(), 'content.js removed the stale hide on the logged-out page');
+    assert(page.infos.length === 0, 'no "admin bar hidden" notice logged');
+  }
+
+  // --- 32. Logged-in + hidden pref keeps the style, logs once -------------
+  {
+    console.log('\n[32] logged-in page with hide pref keeps the style');
+    const page = makePage(WP_LOGGED_IN_PAGE, {
+      storageData: {
+        'wp_cache_https://example.com': { isWordPress: true },
+        wp_preferences_v1: { 'https://example.com': { adminBarHidden: true } },
+      },
+    });
+    page.runEarly();
+    await settle();
+    page.runContent();
+    await settle();
+    const el = page.styleEl();
+    assert(!!el, 'hide style present after reconcile');
+    assert(el && el.hasAttribute('data-wpd-owned'), 'style is extension-owned');
+    assert(page.infos.length === 1, `notice logged exactly once (got ${page.infos.length})`);
+    assert(!page.ctx.document.body.classList.contains('admin-bar'),
+      'body.admin-bar removed while hidden');
+  }
+
+  // --- 33. Popup toggle restores what the hide removed ---------------------
+  {
+    console.log('\n[33] toggling the pref off restores body.admin-bar and drops the style');
+    const page = makePage(WP_LOGGED_IN_PAGE, {
+      storageData: {
+        wp_preferences_v1: { 'https://example.com': { adminBarHidden: true } },
+      },
+    });
+    page.runContent();
+    await settle();
+    assert(!!page.styleEl(), 'style created by content.js applyHide');
+    assert(page.listeners.length > 0, 'content script registered a message listener');
+    for (const fn of page.listeners) {
+      fn({ type: 'APPLY_ADMIN_BAR_PREF', hidden: false }, {}, () => {});
+    }
+    await settle();
+    assert(!page.styleEl(), 'style removed on show');
+    assert(page.ctx.document.body.classList.contains('admin-bar'),
+      'body.admin-bar restored');
+    assert(page.ctx.document.body.classList.contains('logged-in'),
+      'unrelated body classes untouched');
+  }
+
+  console.log(`\n${failures === 0 ? 'Content lifecycle tests passed.' : failures + ' failure(s).'}`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+main().catch((err) => { console.error(err); process.exit(1); });
