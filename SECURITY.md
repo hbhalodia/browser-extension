@@ -54,7 +54,7 @@ Two uses. Sign-in detection: WordPress marks a logged-in session with an HttpOnl
 
 ### `activeTab`
 
-Under audit ahead of the v1.0 freeze. With broad host permissions present, `activeTab` grants nothing the extension does not already have, so it is expected to be removed after a public Issue confirms no Safari-specific dependency. It is documented here rather than silently kept.
+Redundant next to the broad host permissions (Chrome's restricted "on click" site-access mode re-grants host permissions itself and does not depend on `activeTab`), so the packaged Chrome build strips it at packaging time and ships without it as of 0.11.0 ([#61](https://github.com/WordPress/browser-extension/issues/61)). The repository manifest keeps the entry because the Safari build mirrors it and Safari's permission model has a history of surprising behavior under permission narrowing; removing it there is deferred to, and gated on, the Safari store-readiness verification pass. This is the single divergence between the shipped Chrome manifest and the repository manifest.
 
 ### Host permissions: `http://*/*`, `https://*/*`
 
