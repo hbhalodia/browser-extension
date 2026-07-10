@@ -8,7 +8,6 @@ If you believe you've found a security issue in this extension:
 
 - **Do not open a public GitHub Issue or Discussion.**
 - Use GitHub's private vulnerability reporting: **Security → Report a vulnerability** on this repo. This creates an advisory only visible to maintainers.
-- If GitHub's private reporting is unavailable for any reason, contact a maintainer directly via the email on their GitHub profile.
 
 Please include:
 
@@ -25,9 +24,9 @@ We aim to acknowledge reports within five business days. After triage we coordin
 
 **In scope:**
 
-- The shipping extension runtime: `background.js`, `content.js`, `lib/*`, `popup/*`
+- The shipping Chrome extension: `manifest.json`, `background.js`, `content.js`, `lib/*`, `popup/*`, `src/popup/*`, `dist/*`, `options/*`, and `_locales/*`
 - The Safari companion app under `safari/`
-- Build scripts that produce the distributed bundles: `scripts/*`, build configuration
+- Build and dependency configuration that produces the distributed bundles: `scripts/*`, `webpack.config.js`, `package.json`, and `package-lock.json`
 
 **Out of scope:**
 
@@ -62,4 +61,4 @@ The heart of the permission surface, and the entry that deserves the most scruti
 
 A gesture-scoped alternative (`activeTab` only, no host permissions) was built and evaluated. It removes ambient detection outright: the icon cannot show WordPress state until the user clicks the extension on every page, which inverts the product (the icon exists so users do not have to click), and it broke detection in the Safari companion entirely. Broad host access is the minimum permission that supports the shipped behavior.
 
-What the content scripts do with that access is deliberately narrow: read-only DOM inspection for WordPress signals, all evaluated locally. Same-origin REST requests (Site Information, edit-URL resolution) go only to the site being viewed and only in response to user-facing features. No page content, browsing history, or detection result is transmitted off the device; the extension has no servers and no analytics. Hardening on top of this access includes same-origin and path validation for all DOM-sourced navigation targets, origin re-checks inside injected functions, browser-attested sender origins for cache writes, and a cross-origin history oracle guard on the detection cache (a content script can read only its own origin's entry).
+What the content scripts do with that access is deliberately narrow: local DOM inspection for WordPress signals, plus page-local DOM changes only for user-enabled admin-bar controls and developer tools such as the Block Inspector and Query Monitor. Same-origin REST requests (Site Information, edit-URL resolution) go only to the site being viewed and only in response to user-facing features. No page content, browsing history, or detection result is transmitted off the device; the extension has no servers and no analytics. Hardening on top of this access includes same-origin and path validation for all DOM-sourced navigation targets, origin re-checks inside injected functions, browser-attested sender origins for cache writes, and a cross-origin history oracle guard on the detection cache (a content script can read only its own origin's entry).
