@@ -167,6 +167,34 @@ function WpAdminActions({ ctx, origin, baseUrl, url, user }) {
 	);
 }
 
+// Live binding for the edit-this-page command. Users can rebind or clear it
+// at chrome://extensions/shortcuts, and commands.getAll() returns the current
+// binding already formatted for the platform (native ⌥⇧ glyphs on Mac, where
+// the manifest's "Alt" means the Option key). The static suggested-key hint
+// is only the fallback for when the API is unavailable (dev preview); a
+// binding the user cleared shows no hint rather than a false one.
+function useEditShortcutHint() {
+	const isMac = typeof navigator !== 'undefined' && navigator.platform?.startsWith('Mac');
+	const fallback = isMac ? '⌥⇧E' : 'Alt+Shift+E';
+	const [hint, setHint] = useState(fallback);
+	useEffect(() => {
+		let cancelled = false;
+		try {
+			chrome.commands?.getAll?.((commands) => {
+				if (cancelled || !Array.isArray(commands)) return;
+				const cmd = commands.find((c) => c.name === 'edit-this-page');
+				if (cmd) setHint(cmd.shortcut || null);
+			});
+		} catch (_) {
+			/* commands API unavailable — keep the suggested-key fallback */
+		}
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+	return hint;
+}
+
 function FrontendLoggedInActions({ ctx, origin, baseUrl, url, user }) {
 	const [prefs, savePref] = usePrefs(origin);
 	const { editUrl, resolving, isBlockTheme } = useEditUrlResolution(ctx, origin);
@@ -178,8 +206,7 @@ function FrontendLoggedInActions({ ctx, origin, baseUrl, url, user }) {
 		return rest ? rest.canEditCurrent(ctx, user) !== false : true;
 	}, [ctx, user]);
 
-	const isMac = typeof navigator !== 'undefined' && navigator.platform?.startsWith('Mac');
-	const shortcutHint = isMac ? 'Alt⇧E' : 'Alt+Shift+E';
+	const shortcutHint = useEditShortcutHint();
 
 	const toggleAdminBar = async (show) => {
 		const hidden = !show;
