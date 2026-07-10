@@ -5,7 +5,7 @@ permalink: /privacy-policy/
 
 # Privacy Policy — WordPress Browser Extension
 
-**Effective date:** July 9, 2026
+**Effective date:** July 10, 2026
 
 ## Summary
 
