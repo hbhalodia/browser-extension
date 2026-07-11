@@ -28,6 +28,9 @@ jobs:
           npm ci
           npm ci --prefix test
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run tests
         run: npm test --prefix test
 

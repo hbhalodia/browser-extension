@@ -1,6 +1,6 @@
 {
   "name": "wordpress-browser-extension",
-  "version": "0.10.4",
+  "version": "0.11.0",
   "private": true,
   "description": "Browser extension that detects WordPress sites and surfaces admin/developer shortcuts.",
   "license": "MIT",
@@ -14,6 +14,7 @@
   "homepage": "https://github.com/WordPress/browser-extension#readme",
   "scripts": {
     "build": "cross-env NODE_ENV=production wp-scripts build",
+    "lint": "eslint .",
     "start": "cross-env NODE_ENV=development wp-scripts start",
     "build:safari": "npm run build && bash scripts/sync-safari.sh",
     "package:chrome": "bash scripts/package-chrome.sh"

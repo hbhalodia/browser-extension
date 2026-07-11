@@ -310,7 +310,7 @@ async function main() {
     const dom = new JSDOM(`<html><body></body></html>`);
     const ctx = loadModules(dom);
 
-    const fakeFetch = async (url) => ({
+    const fakeFetch = async (_url) => ({
       ok: true,
       json: async () => ({
         name: 'Example', description: 'Just an example',
@@ -812,7 +812,7 @@ async function main() {
 
     // Block theme: /themes?status=active reports is_block_theme, then
     // /templates lists the registered templates.
-    const blockFetch = async (url, options) => {
+    const blockFetch = async (url, _options) => {
       if (url.includes('/wp/v2/themes')) {
         return { ok: true, async json() { return [{ stylesheet: 'twentytwentyfour', is_block_theme: true }]; } };
       }

@@ -31,6 +31,23 @@ cp manifest.json    "$STAGE/"
 cp background.js    "$STAGE/"
 cp content.js       "$STAGE/"
 
+# Chrome-package permission trim: activeTab is redundant next to the broad
+# host_permissions (Chrome's restricted "on click" site access re-grants host
+# permissions itself and does not depend on activeTab), and the Chrome Web
+# Store requires the narrowest permission set. The repo manifest keeps
+# activeTab because the Safari build mirrors it and Safari's permission model
+# has not yet been verified without it — that verification is deliberately
+# deferred to the Safari store-readiness pass. This is the single point where
+# the shipped Chrome manifest diverges from the repo manifest.
+node -e "
+  const fs = require('fs');
+  const p = '$STAGE/manifest.json';
+  const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+  m.permissions = m.permissions.filter((x) => x !== 'activeTab');
+  fs.writeFileSync(p, JSON.stringify(m, null, 2) + '\n');
+"
+echo "Chrome permissions: $(node -p "JSON.stringify(require('$STAGE/manifest.json').permissions)")"
+
 # i18n catalogs — the manifest's __MSG_*__ fields (default_locale) and every
 # chrome.i18n.getMessage() call resolve against these.
 cp -R _locales "$STAGE/_locales"

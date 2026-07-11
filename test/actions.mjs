@@ -174,7 +174,7 @@ console.log('\n[28] clear-data — origin check lives inside the injected functi
 	// The injected function itself must refuse the wrong origin even if
 	// every popup-side check passed: invoke it directly with a mismatched
 	// document origin and assert it declines to clear.
-	const { runAction, calls, origin } = makeHarness();
+	const { calls, origin } = makeHarness();
 	let injectedFunc = null;
 	let injectedArgs = null;
 	const chrome = {
