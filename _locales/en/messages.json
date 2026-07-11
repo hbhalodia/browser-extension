@@ -8,8 +8,8 @@
     "description": "Short name shown where space is limited"
   },
   "ext_description": {
-    "message": "Detect WordPress sites, jump to the editor, identify the host, toggle the admin bar, and more.",
-    "description": "Extension description shown in the browser's extension store and management pages"
+    "message": "Quick access to your WordPress sites, content editing, and developer tools. Tuck away the admin bar.",
+    "description": "Extension description shown in the browser's extension store and management pages. The Chrome Web Store shows it as the listing summary and enforces a 132-character limit."
   },
   "ext_action_title": {
     "message": "WordPress Browser Extension",
