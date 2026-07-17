@@ -80,10 +80,12 @@ function loadBackground(storage) {
   const noopEvent = { addListener: () => {} };
 
   // Stateful windows stub: models open/closed windows so the Mobile Preview
-  // reuse path (create once, focus on repeat, reopen after close) can be
-  // observed. get() throws for a window the test has closed, exactly like the
-  // real API when openOrFocusPreview probes a stale id.
-  const winState = { nextId: 1000, open: new Set(), created: [], focused: [] };
+  // reuse path (create once, navigate + focus on repeat, reopen after close)
+  // can be observed. get() throws for a window the test has closed, exactly
+  // like the real API when openOrFocusPreview probes a stale id. Each window
+  // carries one tab (id + 5000) so the populate/tabs.update navigation path
+  // runs against its real shape.
+  const winState = { nextId: 1000, open: new Set(), created: [], focused: [], navigated: [] };
   const chromeStub = {
     runtime: {
       getURL: (p) => EXT_URL + p,
@@ -97,7 +99,12 @@ function loadBackground(storage) {
       onUpdated: noopEvent,
       query: async () => [],
       sendMessage: async () => ({}),
-      update: async () => {},
+      update: async (tabId, opts) => {
+        if (typeof tabId === 'number' && opts && opts.url) {
+          winState.navigated.push({ tabId, url: opts.url });
+        }
+        return { id: tabId };
+      },
     },
     action: {
       setIcon: (opts, cb) => { iconCalls.push(opts); cb && cb(); },
@@ -112,9 +119,11 @@ function loadBackground(storage) {
         winState.created.push({ id, url });
         return { id };
       },
-      get: async (id) => {
+      get: async (id, opts) => {
         if (!winState.open.has(id)) throw new Error('no such window');
-        return { id, state: 'normal', width: 393 };
+        const win = { id, state: 'normal', width: 393 };
+        if (opts && opts.populate) win.tabs = [{ id: id + 5000, windowId: id }];
+        return win;
       },
       update: async (id, opts) => {
         if (opts && opts.focused) winState.focused.push(id);
@@ -270,36 +279,57 @@ async function main() {
     assert(iconCalls.length === 1, 'popup sender and unknown origin ignored');
   }
 
-  // --- 40. Mobile Preview reuses the window already open for the same URL --
+  // --- 40. Mobile Preview keeps one window per site (origin) ---------------
   {
-    console.log('\n[40] Mobile Preview: same URL focuses the open window instead of duplicating');
+    console.log('\n[40] Mobile Preview: one window per site — reuse navigates, sites stay separate');
     const storage = makeStorage();
     const { send, winState, closeWindow } = loadBackground(storage);
-    const url = 'https://make.wordpress.org/core/2026/05/22/post/';
+    const pageA = 'https://make.wordpress.org/core/2026/05/22/post/';
+    const pageB = 'https://make.wordpress.org/core/2026/06/01/another-post/';
 
-    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: pageA, enforceSize: false }, POPUP_SENDER);
     assert(winState.created.length === 1, 'first click opens one preview window');
+    const firstWin = winState.created[0].id;
 
-    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
-    assert(winState.created.length === 1, 'second click on the same URL opens no new window');
-    assert(winState.focused.length === 1 && winState.focused[0] === winState.created[0].id,
-      'second click focuses the window already open');
+    // A different page on the same site reuses the window: navigate + focus.
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: pageB, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 1, 'another page on the same site opens no new window');
+    assert(winState.navigated.length === 1
+      && winState.navigated[0].tabId === firstWin + 5000
+      && winState.navigated[0].url === pageB,
+      'the existing window is navigated to the newly requested page');
+    assert(winState.focused.length === 1 && winState.focused[0] === firstWin,
+      'and brought to front');
 
-    // A different URL still gets its own window.
-    const other = 'https://make.wordpress.org/core/2026/05/22/other/';
-    await send({ type: 'OPEN_MOBILE_PREVIEW', url: other, enforceSize: false }, POPUP_SENDER);
-    assert(winState.created.length === 2, 'a different URL opens a separate window');
+    // A repeat click for the page already showing re-navigates (we cannot read
+    // the tab's URL without the tabs permission, and re-pointing is harmless).
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: pageB, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 1 && winState.navigated.length === 2,
+      'a repeat click for the same page still reuses and re-navigates');
 
-    // Once the user closes the first preview, its stored id goes stale; the
-    // same URL must open a fresh window rather than focus a window that's gone.
-    closeWindow(winState.created[0].id);
-    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
-    assert(winState.created.length === 3, 'closed preview reopens instead of focusing a gone window');
+    // A different site gets its own window, side by side with the first.
+    const otherSite = 'https://developer.wordpress.org/reference/';
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: otherSite, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 2, 'a different site opens a separate window');
 
-    // A content-script sender must not be able to pop open windows.
-    const before = winState.created.length;
+    // Scheme is part of the site identity (WordPress treats it that way), so
+    // http and https of the same host do not share a window.
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: 'http://make.wordpress.org/core/', enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 3, 'http and https of the same host are distinct sites');
+
+    // Once the user closes a site's preview, its stored id goes stale; the
+    // same site must open a fresh window rather than focus a window that's gone.
+    closeWindow(firstWin);
+    const navsBefore = winState.navigated.length;
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: pageA, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 4, 'closed preview reopens instead of focusing a gone window');
+    assert(winState.navigated.length === navsBefore, 'and nothing tries to navigate the gone window');
+
+    // A content-script sender must not be able to open or steer windows.
+    const before = { created: winState.created.length, navigated: winState.navigated.length };
     await send({ type: 'OPEN_MOBILE_PREVIEW', url: 'https://evil.example/x', enforceSize: false }, CONTENT_SENDER);
-    assert(winState.created.length === before, 'content-script sender is ignored');
+    assert(winState.created.length === before.created && winState.navigated.length === before.navigated,
+      'content-script sender is ignored');
   }
 
   console.log(`\n${failures === 0 ? 'Background storage tests passed.' : failures + ' failure(s).'}`);

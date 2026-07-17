@@ -115,9 +115,10 @@ export async function runAction(action, { origin, baseUrl, url, editUrl, viewUrl
 	window.close();
 }
 
-// The background owns the preview window: it reuses one already open for this
-// URL instead of stacking a duplicate (the popup can't — it closes the moment
-// it dispatches), and it re-asserts the size Safari otherwise ignores (#13).
+// The background owns the preview window: one per site, so it reuses the
+// window already open for this URL's origin — navigating it to this page —
+// instead of stacking a duplicate (the popup can't — it closes the moment it
+// dispatches), and it re-asserts the size Safari otherwise ignores (#13).
 // navigator.vendor is reliable here (Safari-only), so we detect and pass it on.
 async function openMobilePreview(url) {
 	try {
