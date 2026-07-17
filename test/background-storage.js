@@ -34,31 +34,36 @@ const CONTENT_SENDER = { url: 'https://evil.example/page', tab: { id: 3, url: 'h
 const MY_SITES_KEY = 'wp_my_sites_v1';
 const PREFS_KEY = 'wp_preferences_v1';
 
-/** chrome.storage.local stub: async, deep-copying, with an event-loop yield
- * inside get and set so unserialized read-modify-write pairs interleave. */
+/** chrome.storage stub (local + session): async, deep-copying, with an
+ * event-loop yield inside get and set so unserialized read-modify-write pairs
+ * interleave. session mirrors local so the Mobile Preview window map — which
+ * lives in storage.session — runs against its real code path. */
 function makeStorage(initial = {}) {
-  let data = structuredClone(initial);
   const tick = () => new Promise((r) => setImmediate(r));
-  return {
-    local: {
-      get: async (key) => {
-        await tick();
-        if (key === null) return structuredClone(data);
-        const keys = Array.isArray(key) ? key : [key];
-        const out = {};
-        for (const k of keys) if (k in data) out[k] = structuredClone(data[k]);
-        return out;
-      },
-      set: async (obj) => {
-        await tick();
-        for (const [k, v] of Object.entries(obj)) data[k] = structuredClone(v);
-      },
-      remove: async (keys) => {
-        await tick();
-        for (const k of Array.isArray(keys) ? keys : [keys]) delete data[k];
-      },
+  const areaFor = (store) => ({
+    get: async (key) => {
+      await tick();
+      if (key === null || key === undefined) return structuredClone(store.data);
+      const keys = Array.isArray(key) ? key : [key];
+      const out = {};
+      for (const k of keys) if (k in store.data) out[k] = structuredClone(store.data[k]);
+      return out;
     },
-    read: (k) => structuredClone(data[k]),
+    set: async (obj) => {
+      await tick();
+      for (const [k, v] of Object.entries(obj)) store.data[k] = structuredClone(v);
+    },
+    remove: async (keys) => {
+      await tick();
+      for (const k of Array.isArray(keys) ? keys : [keys]) delete store.data[k];
+    },
+  });
+  const local = { data: structuredClone(initial) };
+  const session = { data: {} };
+  return {
+    local: areaFor(local),
+    session: areaFor(session),
+    read: (k) => structuredClone(local.data[k]),
   };
 }
 
@@ -73,6 +78,12 @@ function loadBackground(storage) {
   const listeners = { message: [] };
   const iconCalls = [];
   const noopEvent = { addListener: () => {} };
+
+  // Stateful windows stub: models open/closed windows so the Mobile Preview
+  // reuse path (create once, focus on repeat, reopen after close) can be
+  // observed. get() throws for a window the test has closed, exactly like the
+  // real API when openOrFocusPreview probes a stale id.
+  const winState = { nextId: 1000, open: new Set(), created: [], focused: [] };
   const chromeStub = {
     runtime: {
       getURL: (p) => EXT_URL + p,
@@ -94,7 +105,22 @@ function loadBackground(storage) {
     },
     i18n: { getMessage: (key) => `[i18n:${key}]` },
     commands: { onCommand: noopEvent },
-    windows: { get: async () => ({}), update: async () => {} },
+    windows: {
+      create: async ({ url }) => {
+        const id = winState.nextId++;
+        winState.open.add(id);
+        winState.created.push({ id, url });
+        return { id };
+      },
+      get: async (id) => {
+        if (!winState.open.has(id)) throw new Error('no such window');
+        return { id, state: 'normal', width: 393 };
+      },
+      update: async (id, opts) => {
+        if (opts && opts.focused) winState.focused.push(id);
+        return { id };
+      },
+    },
   };
 
   new Function('globalThis', 'chrome', 'importScripts', 'WPMySites', 'WPRest', backgroundSrc)(
@@ -112,7 +138,11 @@ function loadBackground(storage) {
       if (keptOpen !== true) resolve(undefined);
     });
 
-  return { send, WPMySites: libCtx.WPMySites, iconCalls };
+  // Simulates the user closing a window: drops it from the open set so a later
+  // windows.get(id) throws, the way the real API does for a gone window.
+  const closeWindow = (id) => winState.open.delete(id);
+
+  return { send, WPMySites: libCtx.WPMySites, iconCalls, winState, closeWindow };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -238,6 +268,38 @@ async function main() {
     assert(storage.read('wp_cache_https://b.example').isLoggedIn === true,
       'loggedIn:true hint ignored (downgrade-only)');
     assert(iconCalls.length === 1, 'popup sender and unknown origin ignored');
+  }
+
+  // --- 40. Mobile Preview reuses the window already open for the same URL --
+  {
+    console.log('\n[40] Mobile Preview: same URL focuses the open window instead of duplicating');
+    const storage = makeStorage();
+    const { send, winState, closeWindow } = loadBackground(storage);
+    const url = 'https://make.wordpress.org/core/2026/05/22/post/';
+
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 1, 'first click opens one preview window');
+
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 1, 'second click on the same URL opens no new window');
+    assert(winState.focused.length === 1 && winState.focused[0] === winState.created[0].id,
+      'second click focuses the window already open');
+
+    // A different URL still gets its own window.
+    const other = 'https://make.wordpress.org/core/2026/05/22/other/';
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: other, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 2, 'a different URL opens a separate window');
+
+    // Once the user closes the first preview, its stored id goes stale; the
+    // same URL must open a fresh window rather than focus a window that's gone.
+    closeWindow(winState.created[0].id);
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url, enforceSize: false }, POPUP_SENDER);
+    assert(winState.created.length === 3, 'closed preview reopens instead of focusing a gone window');
+
+    // A content-script sender must not be able to pop open windows.
+    const before = winState.created.length;
+    await send({ type: 'OPEN_MOBILE_PREVIEW', url: 'https://evil.example/x', enforceSize: false }, CONTENT_SENDER);
+    assert(winState.created.length === before, 'content-script sender is ignored');
   }
 
   console.log(`\n${failures === 0 ? 'Background storage tests passed.' : failures + ' failure(s).'}`);
