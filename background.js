@@ -238,13 +238,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Safari opens a new window at the parent window's size when the parent is
-  // maximized or fullscreen, ignoring windows.create's width/height. Re-assert
-  // the requested size once the window exists — from here so it survives the
-  // popup closing (see issue #13).
-  if (msg.type === 'ENFORCE_PREVIEW_SIZE') {
-    enforcePreviewSize(msg.winId, msg.width, msg.height);
-    return;
+  // Mobile Preview opens route through here (not the popup calling
+  // windows.create) so a repeat click on the same URL focuses the window
+  // already open instead of stacking a duplicate, and so the Safari size
+  // re-assert (issue #13) outlives the popup. Extension pages only — a content
+  // script must not be able to open arbitrary windows.
+  if (msg.type === 'OPEN_MOBILE_PREVIEW') {
+    if (!isExtensionPageSender(sender)) return;
+    openOrFocusPreview(msg.url, msg.enforceSize)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true; // async response
   }
 
   // Extension pages route their My Sites / preference writes through here so
@@ -298,6 +302,77 @@ function isExtensionPageSender(sender) {
   } catch (_) {
     return false;
   }
+}
+
+// --- Mobile Preview windows ------------------------------------------------
+//
+// Reuse the preview window already open for a URL instead of opening a
+// duplicate on every click. We remember the id of each window we open, keyed by
+// its exact URL, and a repeat click focuses that window. Tracking our own ids
+// (rather than scanning windows.getAll and matching tab.url) needs no host
+// access, so it's unaffected by Safari's user-gated host permissions, and it
+// only ever focuses a window we actually opened.
+//
+// The map lives in chrome.storage.session so it survives the service worker
+// being evicted between clicks — a plain variable would be gone by the next
+// click and the duplicate would return. session is cleared on browser restart,
+// which is right: a window id means nothing across a restart. Safari added
+// storage.session in 16.4; where it's absent we fall back to a module-level
+// object, still correct within a single worker lifetime.
+const PREVIEW_W = 393;
+const PREVIEW_H = 852;
+const PREVIEW_WINDOWS_KEY = 'wp_preview_windows';
+const sessionStore = chrome.storage && chrome.storage.session ? chrome.storage.session : null;
+let previewWindowsFallback = {}; // url -> windowId, used only when storage.session is absent
+
+async function getPreviewWindows() {
+  if (!sessionStore) return { ...previewWindowsFallback };
+  try {
+    const data = await sessionStore.get(PREVIEW_WINDOWS_KEY);
+    return data[PREVIEW_WINDOWS_KEY] || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+async function setPreviewWindows(map) {
+  if (!sessionStore) { previewWindowsFallback = map; return; }
+  try {
+    await sessionStore.set({ [PREVIEW_WINDOWS_KEY]: map });
+  } catch (_) { /* ignore — worst case is one duplicate window */ }
+}
+
+// Focus the preview already open for this exact URL, else open a new one. A
+// stored id whose window the user has closed makes windows.get throw; we drop
+// it and open fresh, so no close listener is needed to prune the map.
+// enforceSize is set by the popup on Safari only (see issue #13).
+async function openOrFocusPreview(url, enforceSize) {
+  if (typeof url !== 'string' || !url) return;
+
+  const windows = await getPreviewWindows();
+  const existingId = windows[url];
+  if (existingId != null) {
+    try {
+      await chrome.windows.get(existingId); // throws if the user has closed it
+      await chrome.windows.update(existingId, { focused: true });
+      return;
+    } catch (_) {
+      delete windows[url]; // stale id — fall through and open fresh
+    }
+  }
+
+  let win;
+  try {
+    win = await chrome.windows.create({ url, type: 'popup', width: PREVIEW_W, height: PREVIEW_H });
+  } catch (_) {
+    await setPreviewWindows(windows); // persist the stale-id eviction above
+    return;
+  }
+  if (win && win.id != null) {
+    windows[url] = win.id;
+    if (enforceSize) enforcePreviewSize(win.id, PREVIEW_W, PREVIEW_H);
+  }
+  await setPreviewWindows(windows);
 }
 
 // Polls until the window accepts the requested size or closes. Safari ignores

@@ -209,5 +209,29 @@ console.log('\n[28] clear-data — origin check lives inside the injected functi
 	assert(calls.localCleared === 0, 'and clears nothing');
 }
 
+console.log('\n[29] mobile-preview — delegates to the background instead of opening a window itself');
+{
+	const sent = [];
+	let windowsCreated = 0;
+	let closed = 0;
+	const chrome = {
+		runtime: { sendMessage: async (msg) => { sent.push(msg); } },
+		// Present so a regression that calls it directly would be observable.
+		windows: { create: async () => { windowsCreated++; return { id: 1 }; } },
+	};
+	const loader = new Function('chrome', 'window', 'navigator', `${actionsSrc}\nreturn { runAction };`);
+	// navigator.vendor is Safari's here, so the popup should flag enforceSize.
+	const { runAction } = loader(chrome, { close: () => { closed++; }, WPRest: null }, { vendor: 'Apple Computer, Inc.' });
+	const url = 'https://make.wordpress.org/core/2026/05/22/post/';
+	await runAction('mobile-preview', { url });
+	assert(windowsCreated === 0, 'popup does not call chrome.windows.create directly');
+	assert(sent.length === 1 && sent[0].type === 'OPEN_MOBILE_PREVIEW',
+		'sends OPEN_MOBILE_PREVIEW to the background');
+	assert(sent[0].url === url, 'forwards the target URL');
+	assert(sent[0].enforceSize === true,
+		'flags Safari (navigator.vendor) so the background re-asserts the window size');
+	assert(closed === 1, 'popup closes after dispatching');
+}
+
 console.log(`\n${failures === 0 ? 'Popup action tests passed.' : failures + ' failure(s).'}`);
 process.exit(failures === 0 ? 0 : 1);
