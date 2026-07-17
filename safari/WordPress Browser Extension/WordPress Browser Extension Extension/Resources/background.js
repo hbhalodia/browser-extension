@@ -239,10 +239,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // Mobile Preview opens route through here (not the popup calling
-  // windows.create) so a repeat click on the same URL focuses the window
-  // already open instead of stacking a duplicate, and so the Safari size
-  // re-assert (issue #13) outlives the popup. Extension pages only — a content
-  // script must not be able to open arbitrary windows.
+  // windows.create) so a repeat click reuses the site's preview window —
+  // navigated to the requested page and focused — instead of stacking a
+  // duplicate, and so the Safari size re-assert (issue #13) outlives the
+  // popup. Extension pages only — a content script must not be able to open
+  // or steer windows.
   if (msg.type === 'OPEN_MOBILE_PREVIEW') {
     if (!isExtensionPageSender(sender)) return;
     openOrFocusPreview(msg.url, msg.enforceSize)
@@ -306,12 +307,16 @@ function isExtensionPageSender(sender) {
 
 // --- Mobile Preview windows ------------------------------------------------
 //
-// Reuse the preview window already open for a URL instead of opening a
-// duplicate on every click. We remember the id of each window we open, keyed by
-// its exact URL, and a repeat click focuses that window. Tracking our own ids
+// One preview window per site: the map keys on the URL's origin, so browsing
+// around a site reuses the window already open for it (navigated to the new
+// page and focused) while distinct sites keep distinct windows that can sit
+// side by side. Origin rather than registrable domain on purpose: WordPress
+// treats the scheme as part of the site URL, multisite subdomain installs are
+// separate sites, and domain grouping would need public-suffix logic for no
+// gain. It also matches how the detection cache is keyed. Tracking our own ids
 // (rather than scanning windows.getAll and matching tab.url) needs no host
 // access, so it's unaffected by Safari's user-gated host permissions, and it
-// only ever focuses a window we actually opened.
+// only ever touches windows we actually opened.
 //
 // The map lives in chrome.storage.session so it survives the service worker
 // being evicted between clicks — a plain variable would be gone by the next
@@ -323,7 +328,7 @@ const PREVIEW_W = 393;
 const PREVIEW_H = 852;
 const PREVIEW_WINDOWS_KEY = 'wp_preview_windows';
 const sessionStore = chrome.storage && chrome.storage.session ? chrome.storage.session : null;
-let previewWindowsFallback = {}; // url -> windowId, used only when storage.session is absent
+let previewWindowsFallback = {}; // origin -> windowId, used only when storage.session is absent
 
 async function getPreviewWindows() {
   if (!sessionStore) return { ...previewWindowsFallback };
@@ -342,34 +347,48 @@ async function setPreviewWindows(map) {
   } catch (_) { /* ignore — worst case is one duplicate window */ }
 }
 
-// Focus the preview already open for this exact URL, else open a new one. A
-// stored id whose window the user has closed makes windows.get throw; we drop
-// it and open fresh, so no close listener is needed to prune the map.
-// enforceSize is set by the popup on Safari only (see issue #13).
+// Reuse the preview already open for this URL's origin — navigate it to the
+// requested page and focus it — else open a new one. Navigating on every reuse
+// (rather than only when the URL differs) is deliberate: without the tabs
+// permission we cannot read what the window currently shows, and always
+// pointing it at the requested page keeps it honest even after the user
+// browses inside it. A stored id whose window the user has closed makes
+// windows.get throw; we drop it and open fresh, so no close listener is needed
+// to prune the map. enforceSize is set by the popup on Safari only (see #13).
 async function openOrFocusPreview(url, enforceSize) {
   if (typeof url !== 'string' || !url) return;
+  let origin;
+  try {
+    origin = new URL(url).origin;
+  } catch (_) {
+    return; // not a URL we can key — the popup never sends these
+  }
 
   const windows = await getPreviewWindows();
-  const existingId = windows[url];
+  const existingId = windows[origin];
   if (existingId != null) {
     try {
-      await chrome.windows.get(existingId); // throws if the user has closed it
+      // populate:true exposes the window's tab id (never gated — only url and
+      // title need the tabs permission), which tabs.update needs to navigate.
+      const win = await chrome.windows.get(existingId, { populate: true });
+      const tab = win.tabs && win.tabs[0];
+      if (tab && tab.id != null) await chrome.tabs.update(tab.id, { url });
       await chrome.windows.update(existingId, { focused: true });
       return;
     } catch (_) {
-      delete windows[url]; // stale id — fall through and open fresh
+      delete windows[origin]; // stale id — fall through and open fresh
     }
   }
 
   let win;
   try {
     win = await chrome.windows.create({ url, type: 'popup', width: PREVIEW_W, height: PREVIEW_H });
-  } catch (_) {
+  } catch (err) {
     await setPreviewWindows(windows); // persist the stale-id eviction above
-    return;
+    throw err; // surfaces as { ok: false } to the popup
   }
   if (win && win.id != null) {
-    windows[url] = win.id;
+    windows[origin] = win.id;
     if (enforceSize) enforcePreviewSize(win.id, PREVIEW_W, PREVIEW_H);
   }
   await setPreviewWindows(windows);
